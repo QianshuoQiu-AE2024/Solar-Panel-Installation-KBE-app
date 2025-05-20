@@ -3,13 +3,15 @@ from parapy.geom import *
 import osmnx as ox
 from shapely.geometry import MultiPolygon
 import numpy as np
+import math
 
-class TopologyElements(Base):
+
+class House(Base):
     address = Input()
     floors = Input()
     slope_height = Input(1.5)  # default slope
     dist = Input(5)
-    selected_indices = Input([4, 3, 2, 7])  # indices to form ridge rectangle, selected interactively
+    roof_vertexes = Input()  # indices to form ridge rectangle, selected interactively
 
     @Attribute
     def footprint(self):
@@ -77,18 +79,39 @@ class TopologyElements(Base):
                     for i in range(len(self.base_pts) - 1)]
         return Wire(segments)
 
-    @Attribute(in_tree=True)
+    @Part
+    def base(self):
+        return ExtrudedSolid(island=self.base_wire, distance=self.base_height)
+
+    @Part
+    def markers(self):
+        return Sphere(
+            radius=0.25,
+            position=translate(self.combined_points[child.index], 'z', self.base_height),
+            label=f"{child.index}",
+            color='red',
+            quantify=len(self.combined_points)
+        )
+
+    @Part
+    def gable_roofs(self):
+            return GableRoof(
+                quantify=len(self.roof_vertexes),
+                roof_vertexes=[self.combined_points[i] for i in self.roof_vertexes[child.index]],
+                base_height=self.base_height,
+                slope_height=self.slope_height
+            )
+
+class GableRoof(Base):
+    roof_vertexes = Input()
+    slope_height = Input()
+    base_height = Input()
+
+    @Attribute
     def roof_pts(self):
-        idx = self.selected_indices
-        pts = self.combined_points
-        if len(idx) < 4:
-            return []
-
-        p0, p1, p2, p3 = pts[idx[0]], pts[idx[1]], pts[idx[2]], pts[idx[3]]
-
+        p0, p1, p2, p3 = self.roof_vertexes
         ridge_start = Point((p0.x + p1.x) / 2, (p0.y + p1.y) / 2, self.base_height + self.slope_height)
         ridge_end = Point((p2.x + p3.x) / 2, (p2.y + p3.y) / 2, self.base_height + self.slope_height)
-
         return [Point(p0.x, p0.y, self.base_height),
                 Point(p1.x, p1.y, self.base_height),
                 ridge_start,
@@ -98,12 +121,10 @@ class TopologyElements(Base):
 
     @Attribute(in_tree=True)
     def roof_wire_0(self):
-        pts = self.roof_pts
-        if not pts: return None
-        return Wire([LineSegment(pts[0], pts[1]),
-                     LineSegment(pts[1], pts[4]),
-                     LineSegment(pts[4], pts[5]),
-                     LineSegment(pts[5], pts[0])])
+        return Wire([LineSegment(self.roof_pts[0], self.roof_pts[1]),
+                     LineSegment(self.roof_pts[1], self.roof_pts[4]),
+                     LineSegment(self.roof_pts[4], self.roof_pts[5]),
+                     LineSegment(self.roof_pts[5], self.roof_pts[0])])
 
     @Attribute()
     def roof_plane_1(self):
@@ -141,6 +162,7 @@ class TopologyElements(Base):
                      LineSegment(projected_pts[1], projected_pts[2]),
                      LineSegment(projected_pts[2], projected_pts[3]),
                      LineSegment(projected_pts[3], projected_pts[0])])
+
     @Attribute()
     def roof_plane_2(self):
         pts = [self.roof_pts[0], self.roof_pts[2], self.roof_pts[3], self.roof_pts[5]]
@@ -179,10 +201,6 @@ class TopologyElements(Base):
                      LineSegment(projected_pts[3], projected_pts[0])])
 
     @Part
-    def base(self):
-        return ExtrudedSolid(island=self.base_wire, distance=self.base_height)
-
-    @Part
     def roof_face_1(self):
         return Face(self.roof_wire_1)
 
@@ -192,21 +210,72 @@ class TopologyElements(Base):
 
     @Part
     def roof(self):
-        return LoftedSolid([self.roof_wire_1, self.roof_wire_2])
+        return LoftedSolid(profiles=[self.roof_wire_1, self.roof_wire_2])
 
     @Part
-    def markers(self):
-        return Sphere(
-            radius=0.25,
-            position=translate(self.combined_points[child.index], 'z', self.base_height),
-            label=f"{child.index}",
-            color='red',
-            quantify=len(self.combined_points)
+    def solar_panel_on_roof(self):
+        return SolarPanel(
+            location=self.roof_face_1.cog,
+            is_flat_roof=False,
+            sync_inclination=True,
+            roof_normal=self.roof_face_1.plane_normal,
+            inclination=0  # this could be parameterized or vary
         )
+
+
+class SolarPanel(GeomBase):
+    length = Input(1.7)  # meters
+    width = Input(1.0)   # meters
+    inclination = Input(30)  # degrees from XY-plane
+    azimuth = Input(180)  # degrees from North (used only on flat roofs)
+    location = Input(ORIGIN)  # position of the panel's center
+    is_flat_roof = Input(True)
+    sync_inclination = Input(True)
+    roof_normal = Input(Vector(0, 0, 1))  # required if not flat
+
+    @Attribute
+    def panel_position(self):
+        """Compute the position of the solar panel."""
+        if self.is_flat_roof:
+            # Panel aligned by user-defined azimuth and inclination
+            length_vec = Vector(1, 0, 0).rotate('z', math.radians(self.azimuth))
+            vz = Vector(0, 0, 1).rotate(length_vec, math.radians(self.inclination))
+        else:
+            # Align with roof: vz = roof normal, vy = direction along roof
+            vz = self.roof_normal.normalized
+            # Assume roof slope is in x-direction of panel. Try to find a good vector orthogonal to vz.
+            vy = vz.in_plane_orthogonal(Vector(0, 0, 1), normalize=True)
+            # Incline by rotating vz around vy if inclination != 0
+            incl = self.roof_normal.angle(Vector(0, 0, 1)) if self.sync_inclination else self.inclination
+            if abs(incl) > 1e-3:
+                vz = vz.rotate(vy, math.radians(incl))
+            length_vec = vy
+
+        vx = length_vec.cross(vz).normalized
+        vy = length_vec.normalized
+        return Position(self.location, orientation=Orientation(x=vx, y=vy))
+
+    @Attribute
+    def inclination_relative_to_roof(self):
+        """Return angle between panel and roof (0 if flat roof)."""
+        if self.is_flat_roof:
+            return 0.0
+        return math.degrees(self.roof_normal.angle(self.panel_position.Vz))
+
+    @Part
+    def panel(self):
+        return Box(width=self.length,
+                   length=self.width,
+                   height=0.04,
+                   position=self.panel_position,
+                   color="blue",
+                   centered=True)
 
 
 if __name__ == '__main__':
     from parapy.gui import display
-    obj = TopologyElements(address="Slangenstraat 48", floors=2)
+    # Populieren - [[22, 13, 15, 16], [22, 12, 11, 21], [21, 10, 9, 8]]
+    obj = House(address="Slangenstraat 48", floors=2, roof_vertexes=[[4, 3, 2, 7], [1, 6, 8, 2]])
     display(obj)
+
 
