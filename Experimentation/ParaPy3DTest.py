@@ -2,6 +2,7 @@ from parapy.core import *
 from parapy.geom import *
 import osmnx as ox
 from shapely.geometry import MultiPolygon
+from shapely.geometry import Polygon as ShapelyPolygon
 import numpy as np
 import math
 
@@ -12,17 +13,54 @@ class House(Base):
     slope_height = Input(1.5)  # default slope
     dist = Input(5)
     roof_vertexes = Input()  # indices to form ridge rectangle, selected interactively
+    is_correct_house = Input(True)
+    selected_building_index = Input(0)
 
     @Attribute
-    def footprint(self):
+    def nearby_buildings(self):
+        """Get all building footprints around the address."""
         tags = {"building": True}
         gdf = ox.features_from_address(self.address, tags=tags, dist=self.dist)
-        shapes = gdf[gdf.geometry.type.isin(['Polygon', 'MultiPolygon'])]
-        geom = shapes.geometry.iloc[0]
+        shapes = gdf[gdf.geometry.type.isin(['Polygon', 'MultiPolygon'])].geometry
+        return list(shapes)
+
+    @Attribute
+    def building_outline_points(self):
+        """Normalized building outlines relative to first polygon's origin."""
+        results = []
+        reference_geom = self.nearby_buildings[0]
+        ref_poly = reference_geom if reference_geom.geom_type == "Polygon" else list(reference_geom.geoms)[0]
+        ref_proj, _ = ox.projection.project_geometry(ref_poly)
+        origin_x, origin_y = ref_proj.exterior.coords[0]
+
+        for geom in self.nearby_buildings:
+            geom = geom if geom.geom_type == "Polygon" else list(geom.geoms)[0]
+            projected_geom, _ = ox.projection.project_geometry(geom)
+            coords = [(x - origin_x, y - origin_y) for x, y in projected_geom.exterior.coords]
+            points = [Point(x, y, 0) for x, y in coords]
+            results.append(points)
+        return results
+
+    @Attribute
+    def building_outline_centroids(self):
+        return [Polygon(points=pts).cog for pts in self.building_outline_points]
+
+    @Attribute
+    def selected_footprint(self):
+        """Either the first building or a user-selected alternative."""
+        geom = self.nearby_buildings[self.selected_building_index]
         if isinstance(geom, MultiPolygon):
             geom = list(geom.geoms)[0]
         projected_geom, _ = ox.projection.project_geometry(geom)
         return projected_geom
+
+    @Attribute
+    def footprint(self):
+        """This is the geometry the rest of the house is built on."""
+        if self.is_correct_house:
+            return self.selected_footprint
+        else:
+            return ShapelyPolygon()  # avoid crashing
 
     @Attribute
     def base_height(self):
@@ -80,6 +118,26 @@ class House(Base):
         return Wire(segments)
 
     @Part
+    def building_outlines(self):
+        return Polygon(
+            quantify=len(self.building_outline_points),
+            points=self.building_outline_points[child.index],
+            position=self.building_outline_centroids[child.index],
+            color='gray',
+            transparency=0.7
+        )
+
+    @Part
+    def building_labels(self):
+        return TextLabel(
+            quantify=len(self.building_outline_points),
+            text=str(child.index),
+            position= self.building_outline_centroids[child.index],
+            size=1.0,
+            color='black'
+        )
+
+    @Part
     def base(self):
         return ExtrudedSolid(island=self.base_wire, distance=self.base_height)
 
@@ -87,10 +145,20 @@ class House(Base):
     def markers(self):
         return Sphere(
             radius=0.25,
-            position=translate(self.combined_points[child.index], 'z', self.base_height),
+            position=translate(self.combined_points[child.index-1], 'z', self.base_height),
             label=f"{child.index}",
             color='red',
             quantify=len(self.combined_points)
+        )
+
+    @Part
+    def marker_labels(self):
+        return TextLabel(
+            quantify=len(self.combined_points),
+            text=str(child.index),
+            position=translate(self.combined_points[child.index-1], 'z', self.base_height + 0.5),
+            size=0.8,
+            color='red'
         )
 
     @Part
