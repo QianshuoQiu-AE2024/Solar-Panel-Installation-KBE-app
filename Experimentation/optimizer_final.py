@@ -1,7 +1,8 @@
+import csv
 import requests
 import osmnx as ox
 import matplotlib.pyplot as plt
-from shapely.geometry import Polygon, box, MultiPolygon
+from shapely.geometry import Polygon, box, MultiPolygon, Point
 from shapely.affinity import rotate as shapely_rotate
 import math
 import matplotlib.transforms as mtransforms
@@ -438,6 +439,51 @@ ax.legend()
 plt.xlabel("Easting (m)")
 plt.ylabel("Northing (m)")
 plt.tight_layout()
-plt.savefig(f"best_solar_placement_{best_name.replace(' ', '_')}.png", dpi=300, bbox_inches='tight')
-plt.savefig(f"best_solar_placement_{best_name.replace(' ', '_')}.svg", format='svg', bbox_inches='tight')
+# plt.savefig(f"best_solar_placement_{best_name.replace(' ', '_')}.png", dpi=300, bbox_inches='tight')
+# plt.savefig(f"best_solar_placement_{best_name.replace(' ', '_')}.svg", format='svg', bbox_inches='tight')
 plt.show()
+
+# Get roof centroid and rotation info
+centroid = footprint_proj.centroid
+cx, cy = centroid.x, centroid.y
+
+# Prepare output list
+panel_vertices = []
+
+# Process each panel in best_placement
+for idx, placement in enumerate(best_placements):
+    # Extract panel data
+    x = placement['x']
+    y = placement['y']
+    length = placement['length']
+    width = placement['width']
+    panel_type = placement['type']
+
+    # Define the "left" vertex in rotated system (bottom-left of the panel)
+    left_vertex = Point(x, y)
+
+    # Rotate back to real-life system
+    real_vertex = shapely_rotate(left_vertex, -best_rotation_angle, origin=(cx, cy), use_radians=False)
+
+    # Append to output
+    panel_vertices.append({
+        'id': idx + 1,
+        'type': panel_type,
+        'x_real': real_vertex.x,
+        'y_real': real_vertex.y
+    })
+
+# Export to CSV
+csv_filename = "panel_left_vertices_real_world.csv"
+with open(csv_filename, mode='w', newline='') as file:
+    writer = csv.writer(file)
+    writer.writerow(["Panel ID", "Type", "Easting (X, meters)", "Northing (Y, meters)"])
+    for vertex in panel_vertices:
+        writer.writerow([
+            vertex['id'],
+            vertex['type'],
+            f"{vertex['x_real']:.4f}",
+            f"{vertex['y_real']:.4f}"
+        ])
+
+print(f"Left vertex coordinates saved to {csv_filename}")
