@@ -1,15 +1,17 @@
-import csv
 import requests
 import osmnx as ox
 import matplotlib.pyplot as plt
-from shapely.geometry import Polygon, box, MultiPolygon, Point
+from shapely.geometry import Polygon, box, Point, MultiPolygon
 from shapely.affinity import rotate as shapely_rotate
 import math
 import matplotlib.transforms as mtransforms
+import csv
+
 
 # Address to search
-address = "Plein 2000 5"
+# address = "Plein 2000 5"
 # address = "De Run 4604"
+address='professor schermerhornstraat 117'
 tags = {"building": True}
 
 # Get buildings within 50 meters of the address
@@ -40,8 +42,8 @@ num_panels = int(roof_area // panel_area)
 peakpower_kwp = num_panels * 0.33
 print(f"Estimated number of panels: {num_panels}")
 
-# PVGIS request
-params = {
+# PVGIS request for optimal tilt/azimuth
+params_optimal = {
     'lat': lat,
     'lon': lon,
     'outputformat': 'json',
@@ -51,13 +53,55 @@ params = {
     'optimalangles': 1,
     'usehorizon': 1
 }
-response = requests.get("https://re.jrc.ec.europa.eu/api/v5_2/PVcalc", params=params)
-data = response.json()
-optimal_tilt = data['inputs']['mounting_system']['fixed']['slope']['value']
-optimal_azimuth = data['inputs']['mounting_system']['fixed']['azimuth']['value']
+response_optimal = requests.get("https://re.jrc.ec.europa.eu/api/v5_2/PVcalc", params=params_optimal)
+data_optimal = response_optimal.json()
+optimal_tilt = data_optimal['inputs']['mounting_system']['fixed']['slope']['value']
+optimal_azimuth = data_optimal['inputs']['mounting_system']['fixed']['azimuth']['value']
 
 print("Optimal Tilt:", optimal_tilt)
 print("Optimal Azimuth:", optimal_azimuth)
+
+
+def get_pvgis_radiation(lat, lon, tilt, azimuth):
+    """
+    Fetch average daily solar radiation (kWh/m²/day) using PVGIS Hourly Series API
+    """
+    radiation_url = "https://re.jrc.ec.europa.eu/api/v5_2/seriescalc"
+
+    params = {
+        'lat': lat,
+        'lon': lon,
+        'angle': tilt,
+        'aspect': azimuth,
+        'outputformat': 'json',
+        'pvcalculation': 1,
+        'peakpower': 1,
+        'loss': 14,
+        'usehorizon': 1
+    }
+
+    try:
+        response = requests.get(radiation_url, params=params)
+        if response.status_code == 200:
+            data = response.json()
+            hourly_data = data.get('outputs', {}).get('hourly', [])
+            if not hourly_data:
+                print("No hourly data in radiation response")
+                return 0
+
+            total_radiation_wh = sum(hour.get('G(i)', 0) for hour in hourly_data)
+            num_days = len(hourly_data) / 24
+            avg_daily_radiation = total_radiation_wh / 1000 / num_days  # kWh/m²/day
+            print('Azimuth:', azimuth)
+            print("Average daily radiation:", avg_daily_radiation)
+            return avg_daily_radiation
+        else:
+            print(f"Radiation API returned status {response.status_code}")
+            print(f"Response text: {response.text[:500]}...")
+            return 0
+    except Exception as e:
+        print(f"Radiation API call failed: {e}")
+        return 0
 
 # -----------------------------
 # Reusable Functions
@@ -112,6 +156,8 @@ def compute_panel_dimensions_with_tilt(panel_specs, tilt_angle_deg):
         eff_wid = proj_wid + 0.15
         panels.append({
             'type': spec['type'],
+            'length': length,
+            'width': width,
             'proj_len': proj_len,
             'proj_wid': proj_wid,
             'eff_len': eff_len,
@@ -120,8 +166,10 @@ def compute_panel_dimensions_with_tilt(panel_specs, tilt_angle_deg):
     return panels
 
 # -----------------------------
-# Method 1: Wall-Aligned + Sections
+# Optimization Methods (1–4)
 # -----------------------------
+
+# Method 1: Wall-Aligned + Sections
 def optimize_method_1(roof_poly, panels, optimal_azimuth):
     wall_directions = compute_wall_directions(roof_poly)
     best_dir = find_closest_direction(wall_directions, optimal_azimuth)
@@ -145,12 +193,12 @@ def optimize_method_1(roof_poly, panels, optimal_azimuth):
         eff_sec_miny = sec_miny + 0.075
         eff_sec_maxx = sec_maxx - 0.025
         eff_sec_maxy = sec_maxy - 0.075
-
         if eff_sec_maxx <= eff_sec_minx or eff_sec_maxy <= eff_sec_miny:
-            return [], 0
+            return [], 0, 0
 
         placements = []
-        total_area = 0
+        total_proj_area = 0.0
+        total_3d_area = 0.0
         sorted_panels = sorted(panels, key=lambda p: p['eff_len'] * p['eff_wid'], reverse=True)
 
         y = eff_sec_miny
@@ -167,29 +215,30 @@ def optimize_method_1(roof_poly, panels, optimal_azimuth):
                             'y': y,
                             'length': panel['proj_len'],
                             'width': panel['proj_wid'],
-                            'color': {'small': 'lightgreen', 'medium': 'orange', 'large': 'lightblue'}[panel['type']],
+                            'color': {'small': 'lightgreen', 'medium': 'orange', 'large': 'lightblue'}[panel['type']]
                         })
-                        total_area += panel['proj_len'] * panel['proj_wid']
+                        total_proj_area += panel['proj_len'] * panel['proj_wid']
+                        total_3d_area += panel['length'] * panel['width']
                         x += panel['eff_len']
                         placed = True
                         break
                 if not placed:
                     x += 0.5
             y += max(p['eff_wid'] for p in panels)
-        return placements, total_area
+        return placements, total_proj_area, total_3d_area
 
     sections = partition_roof_shape_based(rotated_poly, num_sections=3)
     all_placements = []
-    total_area = 0
+    total_proj_area = 0.0
+    total_3d_area = 0.0
     for section in sections:
-        section_placements, section_area = optimize_section(section, rotated_poly, panels)
+        section_placements, proj_area, d3_area = optimize_section(section, rotated_poly, panels)
         all_placements.extend(section_placements)
-        total_area += section_area
-    return all_placements, total_area, best_dir, rotation_angle, 'Wall-Aligned (With Sections)'
+        total_proj_area += proj_area
+        total_3d_area += d3_area
+    return all_placements, total_proj_area, total_3d_area, best_dir, rotation_angle, 'Wall-Aligned (With Sections)'
 
-# -----------------------------
 # Method 2: Wall-Aligned (No Sections)
-# -----------------------------
 def optimize_method_2(roof_poly, panels, optimal_azimuth):
     wall_directions = compute_wall_directions(roof_poly)
     best_dir = find_closest_direction(wall_directions, optimal_azimuth)
@@ -199,7 +248,8 @@ def optimize_method_2(roof_poly, panels, optimal_azimuth):
     def non_staggered_placement(roof_poly, panels):
         minx, miny, maxx, maxy = roof_poly.bounds
         placements = []
-        total_area = 0
+        total_proj_area = 0.0
+        total_3d_area = 0.0
         sorted_panels = sorted(panels, key=lambda p: p['eff_len'] * p['eff_wid'], reverse=True)
         max_eff_wid = max(p['eff_wid'] for p in panels)
         y = miny
@@ -216,23 +266,22 @@ def optimize_method_2(roof_poly, panels, optimal_azimuth):
                             'y': y,
                             'length': panel['proj_len'],
                             'width': panel['proj_wid'],
-                            'color': {'small': 'lightgreen', 'medium': 'orange', 'large': 'lightblue'}[panel['type']],
+                            'color': {'small': 'lightgreen', 'medium': 'orange', 'large': 'lightblue'}[panel['type']]
                         })
-                        total_area += panel['proj_len'] * panel['proj_wid']
+                        total_proj_area += panel['proj_len'] * panel['proj_wid']
+                        total_3d_area += panel['length'] * panel['width']
                         x += panel['eff_len']
                         placed = True
                         break
                 if not placed:
                     x += 0.5
             y += max_eff_wid
-        return placements, total_area
+        return placements, total_proj_area, total_3d_area
 
-    placements, total_area = non_staggered_placement(rotated_poly, panels)
-    return placements, total_area, best_dir, rotation_angle, 'Wall-Aligned (No Sections)'
+    placements, total_proj_area, total_3d_area = non_staggered_placement(rotated_poly, panels)
+    return placements, total_proj_area, total_3d_area, best_dir, rotation_angle, 'Wall-Aligned (No Sections)'
 
-# -----------------------------
 # Method 3: Optimal Azimuth (No Sections)
-# -----------------------------
 def optimize_method_3(roof_poly, panels, optimal_azimuth):
     rotation_angle = -optimal_azimuth + 90
     rotated_poly = rotate_polygon_to_azimuth(roof_poly, optimal_azimuth)
@@ -240,7 +289,8 @@ def optimize_method_3(roof_poly, panels, optimal_azimuth):
     def staggered_placement(roof_poly, panels):
         minx, miny, maxx, maxy = roof_poly.bounds
         placements = []
-        total_area = 0
+        total_proj_area = 0.0
+        total_3d_area = 0.0
         sorted_panels = sorted(panels, key=lambda p: p['eff_len'] * p['eff_wid'], reverse=True)
         max_eff_wid = max(p['eff_wid'] for p in panels)
         row_index = 0
@@ -258,9 +308,10 @@ def optimize_method_3(roof_poly, panels, optimal_azimuth):
                             'y': y,
                             'length': panel['proj_len'],
                             'width': panel['proj_wid'],
-                            'color': {'small': 'lightgreen', 'medium': 'orange', 'large': 'lightblue'}[panel['type']],
+                            'color': {'small': 'lightgreen', 'medium': 'orange', 'large': 'lightblue'}[panel['type']]
                         })
-                        total_area += panel['proj_len'] * panel['proj_wid']
+                        total_proj_area += panel['proj_len'] * panel['proj_wid']
+                        total_3d_area += panel['length'] * panel['width']
                         x += panel['eff_len']
                         placed = True
                         break
@@ -268,14 +319,12 @@ def optimize_method_3(roof_poly, panels, optimal_azimuth):
                     x += 0.5
             y += max_eff_wid
             row_index += 1
-        return placements, total_area
+        return placements, total_proj_area, total_3d_area
 
-    placements, total_area = staggered_placement(rotated_poly, panels)
-    return placements, total_area, optimal_azimuth, rotation_angle, 'Optimal Azimuth (No Sections)'
+    placements, total_proj_area, total_3d_area = staggered_placement(rotated_poly, panels)
+    return placements, total_proj_area, total_3d_area, optimal_azimuth, rotation_angle, 'Optimal Azimuth (No Sections)'
 
-# -----------------------------
 # Method 4: Optimal Azimuth + Roof Sectioning
-# -----------------------------
 def optimize_method_4(roof_poly, panels, optimal_azimuth):
     rotation_angle = -optimal_azimuth + 90
     rotated_poly = rotate_polygon_to_azimuth(roof_poly, optimal_azimuth)
@@ -298,10 +347,11 @@ def optimize_method_4(roof_poly, panels, optimal_azimuth):
         eff_sec_maxx = sec_maxx - 0.025
         eff_sec_maxy = sec_maxy - 0.075
         if eff_sec_maxx <= eff_sec_minx or eff_sec_maxy <= eff_sec_miny:
-            return [], 0
+            return [], 0, 0
 
         placements = []
-        total_area = 0
+        total_proj_area = 0.0
+        total_3d_area = 0.0
         sorted_panels = sorted(panels, key=lambda p: p['eff_len'] * p['eff_wid'], reverse=True)
         y = eff_sec_miny
         while y < eff_sec_maxy:
@@ -317,28 +367,31 @@ def optimize_method_4(roof_poly, panels, optimal_azimuth):
                             'y': y,
                             'length': panel['proj_len'],
                             'width': panel['proj_wid'],
-                            'color': {'small': 'lightgreen', 'medium': 'orange', 'large': 'lightblue'}[panel['type']],
+                            'color': {'small': 'lightgreen', 'medium': 'orange', 'large': 'lightblue'}[panel['type']]
                         })
-                        total_area += panel['proj_len'] * panel['proj_wid']
+                        total_proj_area += panel['proj_len'] * panel['proj_wid']
+                        total_3d_area += panel['length'] * panel['width']
                         x += panel['eff_len']
                         placed = True
                         break
                 if not placed:
                     x += 0.5
             y += max(p['eff_wid'] for p in panels)
-        return placements, total_area
+        return placements, total_proj_area, total_3d_area
 
     sections = partition_roof_shape_based(rotated_poly, num_sections=3)
     all_placements = []
-    total_area = 0
+    total_proj_area = 0.0
+    total_3d_area = 0.0
     for section in sections:
-        section_placements, section_area = optimize_section(section, rotated_poly, panels)
+        section_placements, proj_area, d3_area = optimize_section(section, rotated_poly, panels)
         all_placements.extend(section_placements)
-        total_area += section_area
-    return all_placements, total_area, optimal_azimuth, rotation_angle, 'Optimal Azimuth (With Sections)'
+        total_proj_area += proj_area
+        total_3d_area += d3_area
+    return all_placements, total_proj_area, total_3d_area, optimal_azimuth, rotation_angle, 'Optimal Azimuth (With Sections)'
 
 # -----------------------------
-# Run All Methods and Select Best by Effective Area
+# Run All Methods and Compare by Total Power Production
 # -----------------------------
 poly = footprint_proj
 
@@ -350,36 +403,32 @@ panels = compute_panel_dimensions_with_tilt(panel_specs, tilt_angle_deg)
 method_results = []
 
 # Method 1
-placements1, area1, azimuth1, rotation_angle1, name1 = optimize_method_1(poly, panels, optimal_azimuth)
-method_results.append((placements1, area1, azimuth1, rotation_angle1, name1))
+placements1, proj1, d3_1, azimuth1, rot1, name1 = optimize_method_1(poly, panels, optimal_azimuth)
+method_results.append((placements1, proj1, d3_1, azimuth1, rot1, name1))
 
 # Method 2
-placements2, area2, azimuth2, rotation_angle2, name2 = optimize_method_2(poly, panels, optimal_azimuth)
-method_results.append((placements2, area2, azimuth2, rotation_angle2, name2))
+placements2, proj2, d3_2, azimuth2, rot2, name2 = optimize_method_2(poly, panels, optimal_azimuth)
+method_results.append((placements2, proj2, d3_2, azimuth2, rot2, name2))
 
 # Method 3
-placements3, area3, azimuth3, rotation_angle3, name3 = optimize_method_3(poly, panels, optimal_azimuth)
-method_results.append((placements3, area3, azimuth3, rotation_angle3, name3))
+placements3, proj3, d3_3, azimuth3, rot3, name3 = optimize_method_3(poly, panels, optimal_azimuth)
+method_results.append((placements3, proj3, d3_3, azimuth3, rot3, name3))
 
 # Method 4
-placements4, area4, azimuth4, rotation_angle4, name4 = optimize_method_4(poly, panels, optimal_azimuth)
-method_results.append((placements4, area4, azimuth4, rotation_angle4, name4))
+placements4, proj4, d3_4, azimuth4, rot4, name4 = optimize_method_4(poly, panels, optimal_azimuth)
+method_results.append((placements4, proj4, d3_4, azimuth4, rot4, name4))
 
-# Calculate effective area for each method
-method_results_with_effective = []
+# Calculate effective power production for each method
+method_results_with_power = []
 for result in method_results:
-    placements, total_area, azimuth, rotation_angle, name = result
-    angle_diff = abs(azimuth - optimal_azimuth)
-    angle_diff = min(angle_diff, 360 - angle_diff)
-    if angle_diff > 90:
-        effective_area = 0
-    else:
-        effective_area = total_area * math.cos(math.radians(angle_diff))
-    method_results_with_effective.append((effective_area, placements, total_area, azimuth, rotation_angle, name))
+    placements, total_proj_area, total_3d_area, azimuth, rotation_angle, name = result
+    radiation = get_pvgis_radiation(lat, lon, optimal_tilt, azimuth)
+    total_power = total_3d_area * radiation
+    method_results_with_power.append((total_power, placements, total_proj_area, total_3d_area, azimuth, rotation_angle, name))
 
-# Find best method by effective area
-best_result = max(method_results_with_effective, key=lambda x: x[0])
-best_effective, best_placements, best_total, best_azimuth, best_rotation_angle, best_name = best_result
+# Find best method
+best_result = max(method_results_with_power, key=lambda x: x[0])
+best_power, best_placements, best_proj, best_3d, best_azimuth, best_rotation, best_name = best_result
 
 # Count panel types
 panel_counts = {'small': 0, 'medium': 0, 'large': 0}
@@ -387,12 +436,12 @@ for placement in best_placements:
     panel_counts[placement['type']] += 1
 
 # Print best result
-print(f"\nBest Method: {best_name}")
-print(f"Total Panel Area: {best_total:.2f} m²")
-print(f"Effective Panel Area: {best_effective:.2f} m²")
+print(f"\n✅ Best Method: {best_name}")
+print(f"Total Panel Projection Area: {best_proj:.2f} m²")
+print(f"Average Solar Radiation: {radiation:.2f} kWh/m²/day")
+print(f"Total Power Production: {best_power:.2f} kWh/day")
 print(f"Roof Area: {roof_area:.2f} m²")
-print(f"Coverage: {best_total / roof_area * 100:.2f}%")
-print(f"Effective Coverage: {best_effective / roof_area * 100:.2f}%")
+print(f"Coverage (Projection): {best_proj / roof_area * 100:.2f}%")
 print(f"Panel counts: {panel_counts}")
 print(f"Panel Azimuth: {best_azimuth:.2f}°")
 
@@ -400,8 +449,6 @@ print(f"Panel Azimuth: {best_azimuth:.2f}°")
 # Final Visualization (Real-Life Orientation)
 # -----------------------------
 fig, ax = plt.subplots(figsize=(12, 12), dpi=300)
-
-# Plot original roof in projected system
 x, y = footprint_proj.exterior.xy
 ax.plot(x, y, color='blue', linewidth=2, label="Roof Outline")
 
@@ -417,7 +464,7 @@ for placement in best_placements:
         edgecolor='black',
         alpha=0.8
     )
-    trans = mtransforms.Affine2D().rotate_deg_around(cx, cy, -best_rotation_angle) + ax.transData
+    trans = mtransforms.Affine2D().rotate_deg_around(cx, cy, -best_rotation) + ax.transData
     ax.add_patch(plt.Rectangle(
         (placement['x'], placement['y']),
         placement['length'], placement['width'],
@@ -427,57 +474,39 @@ for placement in best_placements:
         transform=trans
     ))
 
-# Set limits based on original projected roof
+# Set limits
 minx, miny, maxx, maxy = footprint_proj.bounds
 ax.set_xlim(minx - 1, maxx + 1)
 ax.set_ylim(miny - 1, maxy + 1)
 
 # Final plot settings
-ax.set_title(f"Best Layout: {best_name}\nEffective Coverage: {best_effective / roof_area * 100:.2f}%")
+ax.set_title(f"Best Layout: {best_name}\nCoverage: {best_proj / roof_area * 100:.2f}%")
 ax.set_aspect('equal')
 ax.legend()
 plt.xlabel("Easting (m)")
 plt.ylabel("Northing (m)")
 plt.tight_layout()
-# plt.savefig(f"best_solar_placement_{best_name.replace(' ', '_')}.png", dpi=300, bbox_inches='tight')
-# plt.savefig(f"best_solar_placement_{best_name.replace(' ', '_')}.svg", format='svg', bbox_inches='tight')
+plt.savefig(f"best_solar_placement_{best_name.replace(' ', '_')}.png", dpi=300, bbox_inches='tight')
+plt.savefig(f"best_solar_placement_{best_name.replace(' ', '_')}.svg", format='svg', bbox_inches='tight')
 plt.show()
 
-# Get roof centroid and rotation info
-centroid = footprint_proj.centroid
-cx, cy = centroid.x, centroid.y
-
-# Prepare output list
+# Export vertex data
 panel_vertices = []
-
-# Process each panel in best_placement
 for idx, placement in enumerate(best_placements):
-    # Extract panel data
-    x = placement['x']
-    y = placement['y']
-    length = placement['length']
-    width = placement['width']
-    panel_type = placement['type']
-
-    # Define the "left" vertex in rotated system (bottom-left of the panel)
-    left_vertex = Point(x, y)
-
-    # Rotate back to real-life system
-    real_vertex = shapely_rotate(left_vertex, -best_rotation_angle, origin=(cx, cy), use_radians=False)
-
-    # Append to output
+    left_vertex = Point(placement['x'], placement['y'])
+    real_vertex = shapely_rotate(left_vertex, -best_rotation, origin=(cx, cy), use_radians=False)
     panel_vertices.append({
         'id': idx + 1,
-        'type': panel_type,
+        'type': placement['type'],
         'x_real': real_vertex.x,
         'y_real': real_vertex.y
     })
 
-# Export to CSV
+# Save to CSV
 csv_filename = "panel_left_vertices_real_world.csv"
 with open(csv_filename, mode='w', newline='') as file:
     writer = csv.writer(file)
-    writer.writerow(["Panel ID", "Type", "Easting (X, meters)", "Northing (Y, meters)"])
+    writer.writerow(["Panel ID", "Type", "Easting (X)", "Northing (Y)"])
     for vertex in panel_vertices:
         writer.writerow([
             vertex['id'],
