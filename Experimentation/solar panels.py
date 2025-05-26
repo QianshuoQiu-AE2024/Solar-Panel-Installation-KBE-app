@@ -1,13 +1,9 @@
-
-
-
-
 from parapy.core import Input, Part
 from parapy.geom import GeomBase, Circle, translate, rotate, Box
 
 
 
-class panels(GeomBase):
+class Panels(GeomBase):
     """examples of different ways to define and position circles in ParaPy"""
 
     tilt: float=Input()
@@ -43,7 +39,7 @@ class panels(GeomBase):
 
 if __name__ == '__main__':
     from parapy.gui import display
-    display(panels(tilt=55, orientation=3))  # Example custom dimensions
+    display(Panels(tilt=55, orientation=3))  # Example custom dimensions
 
     # Check the positions of the circles in the Input tab of the GUI!
     # Do you notice anything interesting? Pay special attention to crv5

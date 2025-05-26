@@ -3,7 +3,7 @@ from parapy.geom import Wire, LineSegment, Point, ExtrudedSolid, Vector
 from Map import Map
 from Marker import Marker
 from Roof import Roof
-from Optimized_Placement import Optimized_Placement
+from OptimizedPlacement import OptimizedPlacement
 
 
 
@@ -86,12 +86,10 @@ class House(Base):
 
     @Part
     def sp_cog(self):
-        return Optimized_Placement(quantify=len(self.roof.roof_faces),
+        return OptimizedPlacement(quantify=len(self.roof.roof_faces),
                                    roof_face=self.roof.roof_faces[child.index],
                                    coords=self.map.coords)
-    # @Part
-    # def sp_markers(self):
-    #     return Marker(points=self.sp_cog, color='blue')
+
 
 if __name__ == '__main__':
     from parapy.gui import display

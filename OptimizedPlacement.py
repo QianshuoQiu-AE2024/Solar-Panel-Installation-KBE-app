@@ -1,14 +1,14 @@
-from parapy.core import Base, Input, Attribute
+from parapy.core import Base, Input, Attribute, Part
 import requests
-from parapy.geom import Rectangle, Face
+from parapy.geom import Rectangle, Face, Point
 from shapely.geometry import Polygon as ShapelyPolygon
+from shapely.geometry import Point as ShapelyPoint
 from shapely.geometry import box
 from shapely.affinity import rotate as shapely_rotate
 import math
 
 
-
-class Optimized_Placement(Base):
+class OptimizedPlacement(Base):
     roof_face = Input()
     coords = Input()
 
@@ -343,16 +343,37 @@ class Optimized_Placement(Base):
 
     @Attribute
     def best_result(self):
+        print(self.optimize_method_1)
         return self.optimize_method_1
 
-    @Attribute(in_tree=True)
+    @Attribute
     def solar_panel_placement(self):
-        return self.best_result[0]
+        best_placements = self.best_result[0]
+        panel_vertices = []
+        for idx, placement in enumerate(best_placements):
+            left_vertex = ShapelyPoint(placement['x'], placement['y'])
+            real_vertex = shapely_rotate(left_vertex, -self.best_result[3], origin=(self.roof_poly.centroid.x, self.roof_poly.centroid.y), use_radians=False)
+            panel_vertices.append({
+                'id': idx + 1,
+                'type': placement['type'],
+                'x_real': real_vertex.x,
+                'y_real': real_vertex.y
+            })
+        return panel_vertices
+
+    @Attribute(in_tree=True)
+    def test(self):
+        centroids = []
+        for vertex in self.solar_panel_placement:
+            centroids.append(Point(vertex['x_real'], vertex['y_real'], 0))
+        return centroids
+
+
 
 if __name__ == '__main__':
     from parapy.gui import display
 
-    obj = Optimized_Placement(roof_face=Face(Rectangle(width=7, length=4)), coords=[52.370216, 4.895168])
+    obj = OptimizedPlacement(roof_face=Face(Rectangle(width=7, length=4)), coords=[30.370216, 12.895168])
     display(obj)
 
 
