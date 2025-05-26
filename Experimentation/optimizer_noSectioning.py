@@ -6,7 +6,7 @@ from shapely.affinity import rotate
 import math
 
 # Address to search
-address = "De Run 4604"
+address = "Slangenstraat 48"
 tags = {"building": True}
 
 # Get buildings within 50 meters of the address

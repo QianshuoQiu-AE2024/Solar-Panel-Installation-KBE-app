@@ -6,7 +6,7 @@ from shapely.affinity import rotate
 import math
 
 # Address to search
-address = "De Run 4604"
+address = "Slangenstraat 48"
 tags = {"building": True}
 
 # Get buildings within 50 meters of the address
@@ -93,7 +93,6 @@ def rotate_polygon_to_azimuth(poly, best_azimuth):
 
 # Panel types
 panel_specs = [
-    {'type': 'large', 'length': 0.991, 'width': 1.956},
     {'type': 'large', 'length': 0.991, 'width': 1.956},
     {'type': 'medium', 'length': 0.991, 'width': 1.65},
     {'type': 'small', 'length': 0.991, 'width': 0.991},
