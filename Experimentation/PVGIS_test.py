@@ -32,7 +32,7 @@ print(f"Center of roof: lat={lat:.6f}, lon={lon:.6f}")
 
 panel_area = 1.7  # m²
 num_panels = int(roof_area // panel_area)
-peakpower_kwp = num_panels * 0.33  # convert W to kW
+peakpower_kwp = num_panels * 0.000033  # convert W to kW
 print(f"Estimated number of panels: {num_panels}")
 
 params = {

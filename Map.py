@@ -10,11 +10,20 @@ class Map(GeomBase):
     selected_building_index = Input(0)
 
     @Attribute
-    def nearby_buildings(self):
-        """Get all building footprints around the address."""
+    def house(self):
         tags = {"building": True}
         gdf = ox.features_from_address(self.address, tags=tags, dist=self.range)
-        shapes = gdf[gdf.geometry.type.isin(['Polygon', 'MultiPolygon'])].geometry
+        return gdf[gdf.geometry.type.isin(['Polygon', 'MultiPolygon'])]
+
+    @Attribute
+    def coords(self):
+        center = self.house.geometry.iloc[0].centroid
+        return [center.y, center.x]
+
+    @Attribute
+    def nearby_buildings(self):
+        """Get all building footprints around the address."""
+        shapes = self.house.geometry
         return list(shapes)
 
     @Attribute

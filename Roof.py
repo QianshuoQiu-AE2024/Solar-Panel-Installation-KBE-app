@@ -5,7 +5,7 @@ from GableRoof import GableRoof
 
 
 class Roof(Base):
-    gable_roof_indices = Input([[]])
+    gable_roof_indices = Input([])
     base_height = Input()
     slope_height = Input(1.5)
     base_vertexes = Input()
