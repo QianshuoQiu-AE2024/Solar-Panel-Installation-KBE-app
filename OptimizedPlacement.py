@@ -362,12 +362,19 @@ class OptimizedPlacement(Base):
         return panel_vertices
 
     @Attribute(in_tree=True)
-    def test(self):
-        centroids = []
-        for vertex in self.solar_panel_placement:
-            centroids.append(Point(vertex['x_real'], vertex['y_real'], 0))
-        return centroids
+    def real_points(self):
+        z = self.roof_face.plane_normal.normalized
 
+        # Choose a non-parallel reference vector
+        reference = Vector(1, 0, 0) if abs(z.dot(Vector(0, 0, 1))) > 0.99 else Vector(0, 0, 1)
+        x = z.in_plane_orthogonal(reference, normalize=True)
+        y = z.cross(x).normalized
+        origin = self.roof_face.cog
+
+        return [
+            flat_pt.project(ref=origin, axis1=x, axis2=y)
+            for flat_pt in self.flat_points
+        ]
 
 
 if __name__ == '__main__':

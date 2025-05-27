@@ -1,5 +1,5 @@
 from parapy.core import Base, Input, Attribute, Part, child
-from parapy.geom import Wire, LineSegment, Point, ExtrudedSolid, Vector
+from parapy.geom import Wire, LineSegment, Point, ExtrudedSolid, Vector, Position
 from Map import Map
 from Marker import Marker
 from Roof import Roof
@@ -85,10 +85,17 @@ class House(Base):
                     base_height=self.base_height)
 
     @Part
-    def sp_cog(self):
+    def solar_panel_ref(self):
         return OptimizedPlacement(quantify=len(self.roof.roof_faces),
                                    roof_face=self.roof.roof_faces[child.index],
                                    coords=self.map.coords)
+
+    @Part
+    def solar_panel_array(self):
+        return SolarPanel(quantify=len(self.solar_panel_ref[0].real_points),
+                          position=Position(self.solar_panel_ref[0].real_points[child.index]),
+                          tilt=self.solar_panel_ref[0].best_result[2],
+                          orientation=self.solar_panel_ref[0].best_result[3],)
 
 
 if __name__ == '__main__':
