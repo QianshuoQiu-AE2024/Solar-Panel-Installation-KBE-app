@@ -449,10 +449,9 @@ class OptimizedPlacement(Base):
 
     @Attribute
     def flat_points(self):
-        # Convert solar_panel_placement's 2D coordinates into Parapy Points (z=0)
-        return [Point(p['x_real'], p['y_real'], 0) for p in self.solar_panel_placement]
-
-
+        return [
+            Point(vertex['x_real'], vertex['y_real'], self.roof_face.cog.z)
+            for vertex in self.solar_panel_placement]
 
     @Attribute(in_tree=True)
     def real_points(self):
