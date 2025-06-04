@@ -3,8 +3,7 @@ from parapy.geom import Wire, LineSegment, Point, ExtrudedSolid, Vector, Positio
 from Map import Map
 from Marker import Marker
 from Roof import Roof
-from OptimizedPlacementCost import OptimizedPlacement
-from SolarPanel import SolarPanel
+from SolarPanelArray import SolarPanelArray
 
 
 
@@ -86,19 +85,12 @@ class House(Base):
                     base_height=self.base_height)
 
     @Part
-    def solar_panel_ref(self):
-        return OptimizedPlacement(quantify=len(self.roof.roof_faces),
-                                   roof_face=self.roof.roof_faces[child.index],
-                                   coords=self.map.coords)
-
-    @Part
-    def solar_panel_array(self):
-        return SolarPanel(quantify=len(self.solar_panel_ref[0].real_points),
-                          type=self.solar_panel_ref[0].best_result[0][0][child.index]['type'],
-                          color=self.solar_panel_ref[0].best_result[0][0][child.index]['color'],
-                          position=Position(self.solar_panel_ref[0].real_points[child.index]),
-                          tilt=self.solar_panel_ref[0].best_result[0][2],
-                          orientation=self.solar_panel_ref[0].best_result[0][3])
+    def solar_panel_arrays(self):
+        return SolarPanelArray(
+            quantify=self.roof.nr_faces,
+            roof_face=self.roof.roof_faces[child.index],
+            coords=self.map.coords
+        )
 
 
 if __name__ == '__main__':

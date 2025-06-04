@@ -1,6 +1,6 @@
 from parapy.core import Base, Input, Attribute, Part
 import requests
-from parapy.geom import Rectangle, Face, Point, Vector
+from parapy.geom import Rectangle, Face, Point, Vector, Position
 from parapy.core.widgets import TextField
 from shapely.geometry import Polygon as ShapelyPolygon
 from shapely.geometry import Point as ShapelyPoint
@@ -49,12 +49,33 @@ class OptimizedPlacement(Base):
         optimal_azimuth = data['inputs']['mounting_system']['fixed']['azimuth']['value']
         return [optimal_azimuth, optimal_tilt]
 
+    from parapy.geom import Position, Vector
+
+    @Attribute
+    def tilt_xy(self):
+        if self.roof_face.plane_normal.is_parallel(Vector(0, 0, 1), tol=1e-2):
+            # FLAT ROOF: tilt south by optimal tilt angle
+            tilt_rad = math.radians(self.optimal_angles[1])
+            normal = Vector(0, -math.sin(tilt_rad), math.cos(tilt_rad)).normalized
+        else:
+            # SLOPED ROOF: use actual normal
+            normal = self.roof_normal
+
+        # Pitch: rotation about X (tilt in Y direction)
+        pitch_rad = math.atan2(-normal.y, normal.z)
+        pitch_deg = math.degrees(pitch_rad)
+
+        # Roll: rotation about Y (tilt in X direction)
+        roll_rad = math.atan2(normal.x, normal.z)
+        roll_deg = math.degrees(roll_rad)
+        return [pitch_deg, roll_deg]
+
     @Attribute
     def tilt_angle_deg(self):
-        if self.roof_poly:
+        if self.roof_face.plane_normal.is_parallel(Vector(0, 0, 1), tol=1e-2):
             tilt = self.optimal_angles[1]
         else:
-            tilt = self.roof_poly
+            tilt = math.degrees(self.roof_normal.angle(Vector(0, 0, 1)))
         return tilt
 
     @Attribute
@@ -549,6 +570,9 @@ class OptimizedPlacement(Base):
             annual_radiation=str(self.annual_solar_radiation),
             label="Annual Solar Radiation"
         )
+    # @Attribute(in_tree=True)
+    # def test_face(self):
+    #     return self.roof_face
 
 
 

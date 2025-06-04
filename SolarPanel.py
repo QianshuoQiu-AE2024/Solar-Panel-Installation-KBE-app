@@ -10,6 +10,7 @@ class SolarPanel(GeomBase):
     tilt = Input()
     orientation = Input()
     color = Input()
+    shift = Input()
 
     @Attribute
     def type_size(self):
@@ -22,14 +23,20 @@ class SolarPanel(GeomBase):
         else:
             return Vector(0.05, 0.991, 0.991)
 
+    @Attribute
+    def shifted_position(self):
+        return self.position + Vector(0,-self.shift,0)
+
 
     @Part
     def panel(self):
         return Box(height=self.type_size.x, width=self.type_size.y, length=self.type_size.z,
                    centered=False,  # check in the class Box definition the effect of setting centered to False
                    color=self.color,
-                   position=rotate(rotate(self.position,
-                                          'z',self.orientation,deg=True),'x', self.tilt, deg=True))
+                   position=rotate(rotate(rotate(self.shifted_position,
+                                        'z',self.orientation,deg=True),
+                                        'x', self.tilt[0], deg=True),
+                                        'y', self.tilt[1], deg=True))
 
 
 if __name__ == '__main__':
