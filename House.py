@@ -94,10 +94,11 @@ class House(Base):
     @Part
     def solar_panel_array(self):
         return SolarPanel(quantify=len(self.solar_panel_ref[0].real_points),
-                          type='medium',
+                          type=self.solar_panel_ref[0].best_result[0][0][child.index]['type'],
+                          color=self.solar_panel_ref[0].best_result[0][0][child.index]['color'],
                           position=Position(self.solar_panel_ref[0].real_points[child.index]),
-                          tilt=self.solar_panel_ref[0].best_result[2],
-                          orientation=self.solar_panel_ref[0].best_result[3],)
+                          tilt=self.solar_panel_ref[0].best_result[0][2],
+                          orientation=self.solar_panel_ref[0].best_result[0][3])
 
 
 if __name__ == '__main__':

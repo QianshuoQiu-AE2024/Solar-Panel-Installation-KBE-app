@@ -495,6 +495,7 @@ class OptimizedPlacement(Base):
     @Attribute
     def solar_panel_placement(self):
         best_placements = self.best_result[0][0]
+        print(self.best_result)
         panel_vertices = []
         for idx, placement in enumerate(best_placements):
             left_vertex = ShapelyPoint(placement['x'], placement['y'])
