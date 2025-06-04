@@ -66,16 +66,9 @@ class Roof(Base):
             [child.roof_wire_1 for child in self.gable_roofs] + \
             [child.roof_wire_2 for child in self.gable_roofs]
 
-    @Attribute(in_tree=True)
-    def nr_faces(self):
-        if len(self.gable_roof_indices) < 4:
-            return 1
-        else:
-            return len(self.roof_wires)
-
     @Part
     def roof_faces(self):
-        return Face(quantify=self.nr_faces, island=self.roof_wires[child.index])
+        return Face(quantify=len(self.roof_wires), island=self.roof_wires[child.index])
 
 if __name__ == '__main__':
     from parapy.gui import display

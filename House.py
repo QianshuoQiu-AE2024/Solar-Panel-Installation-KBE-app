@@ -87,7 +87,7 @@ class House(Base):
     @Part
     def solar_panel_arrays(self):
         return SolarPanelArray(
-            quantify=self.roof.nr_faces,
+            quantify=len(self.roof.roof_faces),
             roof_face=self.roof.roof_faces[child.index],
             coords=self.map.coords
         )

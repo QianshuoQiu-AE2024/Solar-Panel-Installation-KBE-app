@@ -8,6 +8,9 @@ from shapely.geometry import box
 from shapely.affinity import rotate as shapely_rotate
 import math
 
+from Experimentation.optimizer_withSectioning import tilt_angle_deg
+
+
 class SolarRadiationDisplay(Base):
     annual_radiation = Input(
         0.0,
@@ -480,15 +483,17 @@ class OptimizedPlacement(Base):
 
         for method in methods:
             azimuth = method[2]
+            tilt_angle = self.tilt_angle_deg
+            if self.tilt_angle_deg < 0:
+                tilt_angle = -self.tilt_angle_deg
+                azimuth += 180
             while azimuth > 180:
                 azimuth -= 360
             while azimuth < -180:
                 azimuth += 360
             area = method[1]
             try:
-                print(self.tilt_angle_deg)
-                print(azimuth)
-                solar_radiation = self.calculate_solar_radiation(self.tilt_angle_deg, azimuth)
+                solar_radiation = self.calculate_solar_radiation(tilt_angle, azimuth)
                 total_radiation = area * solar_radiation
             except Exception as e:
                 print(f"Error calculating radiation for {method[4]}: {e}")
@@ -522,7 +527,6 @@ class OptimizedPlacement(Base):
     @Attribute
     def solar_panel_placement(self):
         best_placements = self.best_result[0][0]
-        print(self.best_result)
         panel_vertices = []
         for idx, placement in enumerate(best_placements):
             left_vertex = ShapelyPoint(placement['x'], placement['y'])
@@ -557,6 +561,7 @@ class OptimizedPlacement(Base):
     def annual_solar_radiation(self):
         best_method_data = self.best_result[0]
         panel_counts = best_method_data[6]
+        azimuth = best_method_data[2]
 
         total_actual_area = 0
         for panel_type in ['small', 'medium', 'large']:
@@ -564,8 +569,15 @@ class OptimizedPlacement(Base):
             spec = next((spec for spec in self.panel_specs if spec['type'] == panel_type), None)
             if spec:
                 total_actual_area += count * spec['length'] * spec['width']
-        print(self.tilt_angle_deg)
-        daily_solrad = self.calculate_solar_radiation(self.tilt_angle_deg, best_method_data[2])
+        tilt_angle = self.tilt_angle_deg
+        if self.tilt_angle_deg < 0:
+            tilt_angle = -self.tilt_angle_deg
+            azimuth += 180
+        while azimuth > 180:
+            azimuth -= 360
+        while azimuth < -180:
+            azimuth += 360
+        daily_solrad = self.calculate_solar_radiation(tilt_angle, azimuth)
         annual_radiation = total_actual_area * daily_solrad * 365
 
         return annual_radiation
