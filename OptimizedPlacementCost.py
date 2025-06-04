@@ -480,8 +480,14 @@ class OptimizedPlacement(Base):
 
         for method in methods:
             azimuth = method[2]
+            while azimuth > 180:
+                azimuth -= 360
+            while azimuth < -180:
+                azimuth += 360
             area = method[1]
             try:
+                print(self.tilt_angle_deg)
+                print(azimuth)
                 solar_radiation = self.calculate_solar_radiation(self.tilt_angle_deg, azimuth)
                 total_radiation = area * solar_radiation
             except Exception as e:
@@ -558,7 +564,7 @@ class OptimizedPlacement(Base):
             spec = next((spec for spec in self.panel_specs if spec['type'] == panel_type), None)
             if spec:
                 total_actual_area += count * spec['length'] * spec['width']
-
+        print(self.tilt_angle_deg)
         daily_solrad = self.calculate_solar_radiation(self.tilt_angle_deg, best_method_data[2])
         annual_radiation = total_actual_area * daily_solrad * 365
 
