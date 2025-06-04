@@ -3,7 +3,8 @@ from parapy.geom import Wire, LineSegment, Point, ExtrudedSolid, Vector, Positio
 from Map import Map
 from Marker import Marker
 from Roof import Roof
-from OptimizedPlacement import OptimizedPlacement
+from OptimizedPlacementCost import OptimizedPlacement
+from SolarPanel import SolarPanel
 
 
 
@@ -93,6 +94,7 @@ class House(Base):
     @Part
     def solar_panel_array(self):
         return SolarPanel(quantify=len(self.solar_panel_ref[0].real_points),
+                          type='medium',
                           position=Position(self.solar_panel_ref[0].real_points[child.index]),
                           tilt=self.solar_panel_ref[0].best_result[2],
                           orientation=self.solar_panel_ref[0].best_result[3],)
