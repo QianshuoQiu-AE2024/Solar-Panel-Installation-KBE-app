@@ -1,4 +1,4 @@
-from parapy.core import Base, Input, Part, child
+from parapy.core import Base, Input, Part, child, Attribute
 from parapy.geom import Position
 from SolarPanel import SolarPanel
 from OptimizedPlacementCost import OptimizedPlacement
@@ -6,10 +6,21 @@ from OptimizedPlacementCost import OptimizedPlacement
 class SolarPanelArray(Base):
     roof_face = Input()
     coords = Input()
+    budget = Input(8000)
+    test = Input()
+
+    @Attribute
+    def test(self):
+        print("Here is is!!!!!", self.test)
+        return self.budget + 1
+
+    @Attribute
+    def remaining_budget(self):
+        return self.budget - self.optimizer.best_result[0][5]
 
     @Part
     def optimizer(self):
-        return OptimizedPlacement(roof_face=self.roof_face, coords=self.coords)
+        return OptimizedPlacement(roof_face=self.roof_face, coords=self.coords, budget=self.budget)
 
     @Part
     def panels(self):

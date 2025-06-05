@@ -10,6 +10,7 @@ from SolarPanelArray import SolarPanelArray
 class House(Base):
     address = Input()
     floors = Input()
+    budget = Input(1400)
 
     @Attribute
     def base_height(self):
@@ -89,8 +90,8 @@ class House(Base):
         return SolarPanelArray(
             quantify=len(self.roof.roof_faces),
             roof_face=self.roof.roof_faces[child.index],
-            coords=self.map.coords
-        )
+            coords=self.map.coords,
+            budget=(self.budget if child.index == 0 else child.previous.remaining_budget))
 
 
 if __name__ == '__main__':
