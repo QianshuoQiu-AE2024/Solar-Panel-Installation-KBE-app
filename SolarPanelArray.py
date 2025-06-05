@@ -1,7 +1,7 @@
 from parapy.core import Base, Input, Part, child, Attribute
 from parapy.geom import Position
 from SolarPanel import SolarPanel
-from OptimizedPlacementCost import OptimizedPlacement
+from OptimizedPlacementNoCost import OptimizedPlacement
 
 class SolarPanelArray(Base):
     roof_face = Input()
@@ -30,5 +30,5 @@ class SolarPanelArray(Base):
                           position=Position(self.optimizer.real_points[child.index]),
                           tilt=self.optimizer.tilt_xy,
                           orientation=self.optimizer.best_result[0][2],
-                          shift=self.optimizer.best_result[0][0][child.index]['length'])
+                          shift=0)
 
