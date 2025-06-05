@@ -10,7 +10,7 @@ from SolarPanelArray import SolarPanelArray
 class House(Base):
     address = Input()
     floors = Input()
-    budget = Input(1400)
+    budget = Input(float('inf'))
 
     @Attribute
     def base_height(self):
@@ -91,10 +91,11 @@ class House(Base):
             quantify=len(self.roof.roof_faces),
             roof_face=self.roof.roof_faces[child.index],
             coords=self.map.coords,
-            budget=(self.budget if child.index == 0 else child.previous.remaining_budget))
+            budget=self.budget
+        )
 
 
 if __name__ == '__main__':
     from parapy.gui import display
-    obj = House(address="Slangenstraat 48", floors=2) # roof_vertexes=[[4, 3, 2, 7], [1, 6, 8, 2]]
+    obj = House(address="Slangenstraat 48", floors=2, budget=1000) # roof_vertexes=[[4, 3, 2, 7], [1, 6, 8, 2]]
     display(obj)
