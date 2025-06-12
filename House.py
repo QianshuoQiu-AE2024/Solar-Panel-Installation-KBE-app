@@ -7,10 +7,11 @@ from SolarPanelArray import SolarPanelArray
 
 
 
+
 class House(Base):
     address = Input()
     floors = Input()
-    budget = Input(float('inf'))
+    budget = Input(1700)
 
     @Attribute
     def base_height(self):
@@ -67,6 +68,27 @@ class House(Base):
                     for i in range(len(self.base_pts) - 1)]
         return Wire(segments)
 
+    @Attribute
+    def face_budgets(self):
+        budgets = [0] * len(self.roof.roof_faces)
+        remaining = self.budget
+        i = 0
+
+        for face in self.roof.roof_faces:
+            face_area = face.area
+            panel_count = int(face_area // (1.35*2.1))
+            face_cost = panel_count * 95
+
+            budget_for_face = min(remaining, face_cost)
+            budgets[i] = budget_for_face
+            remaining -= budget_for_face
+            i =+ 1
+
+            if remaining <= 0:
+                break
+
+        return budgets
+
     @Part
     def building(self):
         return ExtrudedSolid(island=self.base_wire, distance=self.base_height)
@@ -90,21 +112,11 @@ class House(Base):
         return SolarPanelArray(
             quantify=len(self.roof.roof_faces),
             roof_face=self.roof.roof_faces[child.index],
-<<<<<<< Updated upstream
             coords=self.map.coords,
-            budget=self.budget
-        )
-=======
-            coords=self.map.coords)#,
-            #budget=(self.budget if child.index == 0 else child.previous.remaining_budget))
->>>>>>> Stashed changes
+            budget=self.face_budgets[child.index])
 
 
 if __name__ == '__main__':
     from parapy.gui import display
-<<<<<<< Updated upstream
-    obj = House(address="Slangenstraat 48", floors=2, budget=1000) # roof_vertexes=[[4, 3, 2, 7], [1, 6, 8, 2]]
-=======
-    obj = House(address="Slangenstraat 48", floors=2) # roof_vertexes=[[4, 3, 2, 7], [1, 6, 8, 2]] #Bredabaan 614, Brasschaat
->>>>>>> Stashed changes
+    obj = House(address="Slangenstraat 48", floors=2) # roof_vertexes=[[4, 3, 7, 5], [1, 6, 8, 2]] #Bredabaan 614, Brasschaat
     display(obj)

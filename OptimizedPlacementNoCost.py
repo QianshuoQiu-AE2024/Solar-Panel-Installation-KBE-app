@@ -67,7 +67,7 @@ class OptimizedPlacement(Base):
 
         # Roll: rotation about Y (tilt in X direction)
         roll_rad = math.atan2(normal.x, normal.z)
-        roll_deg = math.degrees(roll_rad)
+        roll_deg = abs(math.degrees(roll_rad))
         return [pitch_deg, roll_deg]
 
     @Attribute
@@ -92,6 +92,13 @@ class OptimizedPlacement(Base):
             normalized -= 360
         return normalized
 
+    @staticmethod
+    def normalize_tilt(angle):
+        normalized = angle % 360
+        while normalized > 90:
+            normalized -= 90
+        return normalized
+
     def calculate_solar_radiation(self, tilt, azimuth):
         """
         Calls PVGIS seriescalc API to get average daily solar radiation (kWh/m²/day)
@@ -99,11 +106,12 @@ class OptimizedPlacement(Base):
         """
         radiation_url = "https://re.jrc.ec.europa.eu/api/v5_2/seriescalc"
         normalized_azimuth = self.normalize_azimuth(azimuth)
+        normalized_tilt = self.normalize_tilt(tilt)
 
         params = {
             'lat': self.coords[0],  # Latitude
             'lon': self.coords[1],  # Longitude
-            'angle': tilt,  # Panel tilt (slope)
+            'angle': normalized_tilt,  # Panel tilt (slope)
             'aspect': normalized_azimuth,  # Panel azimuth
             'outputformat': 'json',
             'pvcalculation': 1,
