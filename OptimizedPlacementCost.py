@@ -532,7 +532,7 @@ class OptimizedPlacement(Base):
             self.optimize_method_4,
         ]
         results = []
-        azimuth = 0
+        azimuth = 10000000
         solar_radiation = 0
         for method in methods:
             if azimuth - method[2] >= 1e-2:
@@ -555,7 +555,7 @@ class OptimizedPlacement(Base):
         if self.roof_face.plane_normal.is_parallel(Vector(0, 0, 1), tol=1e-2):
             best = max(results, key=lambda x: x['total_radiation'])
         else:
-            best = max(results[:1], key=lambda x: x['total_radiation'])
+            best = max([results[0], results[1]], key=lambda x: x['total_radiation'])
         print(
             f"Best Method: {best['method'][4]} | Total Solar Radiation: {best['total_radiation']:.2f} kWh/day | Total Cost: {best['method'][5]}")
         return best['method'], best['total_radiation']
