@@ -14,8 +14,12 @@ class House(Base):
     budget = Input(1700)
 
     @Attribute
+    def floor_height(self):
+        return 2.0
+
+    @Attribute
     def base_height(self):
-        return self.floors * 2.0
+        return self.floors * self.floor_height
 
     @Attribute
     def base_pts(self):
