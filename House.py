@@ -90,12 +90,21 @@ class House(Base):
         return SolarPanelArray(
             quantify=len(self.roof.roof_faces),
             roof_face=self.roof.roof_faces[child.index],
+<<<<<<< Updated upstream
             coords=self.map.coords,
             budget=self.budget
         )
+=======
+            coords=self.map.coords)#,
+            #budget=(self.budget if child.index == 0 else child.previous.remaining_budget))
+>>>>>>> Stashed changes
 
 
 if __name__ == '__main__':
     from parapy.gui import display
+<<<<<<< Updated upstream
     obj = House(address="Slangenstraat 48", floors=2, budget=1000) # roof_vertexes=[[4, 3, 2, 7], [1, 6, 8, 2]]
+=======
+    obj = House(address="Slangenstraat 48", floors=2) # roof_vertexes=[[4, 3, 2, 7], [1, 6, 8, 2]] #Bredabaan 614, Brasschaat
+>>>>>>> Stashed changes
     display(obj)

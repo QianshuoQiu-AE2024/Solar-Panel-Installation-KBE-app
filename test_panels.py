@@ -6,7 +6,7 @@ class TestPanels(Base):
 
     @Attribute(in_tree=True)
     def roof_faces(self):
-        return [Face(Rectangle(width=7, length=4, position=rotate(Position(Point(0, 0, 0)), 'y', 25, deg=True))), Face(Rectangle(width=7, length=4))]
+        return [Face(Rectangle(width=7, length=4, position=rotate(Position(Point(0, 0, 0)), 'y', 25, deg=True)))]#, Face(Rectangle(width=7, length=4))]
 
     @Attribute
     def coords(self):

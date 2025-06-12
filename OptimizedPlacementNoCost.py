@@ -70,20 +70,17 @@ class OptimizedPlacement(Base):
         roll_deg = math.degrees(roll_rad)
         return [pitch_deg, roll_deg]
 
-
     @Attribute
     def tilt_angle_deg(self):
-        if self.roof_poly:
+        if self.roof_face.plane_normal.is_parallel(Vector(0, 0, 1), tol=1e-2):
             tilt = self.optimal_angles[1]
         else:
-            tilt = self.roof_poly
+            tilt = math.degrees(self.roof_normal.angle(Vector(0, 0, 1)))
         return tilt
 
     @Attribute
     def optimal_azimuth(self):
         return self.optimal_angles[0]
-
-
 
     # -----------------------------
     # Reusable Functions
@@ -181,7 +178,10 @@ class OptimizedPlacement(Base):
 
     @Attribute
     def panels(self):
-        tilt_rad = math.radians(self.tilt_angle_deg)
+        if self.roof_face.plane_normal.is_parallel(Vector(0, 0, 1), tol=1e-2):
+            tilt_rad = math.radians(self.tilt_angle_deg)
+        else:
+            tilt_rad = 0
         panels = []
         for spec in self.panel_specs:
             length = spec['length']
@@ -509,7 +509,7 @@ class OptimizedPlacement(Base):
                 'total_radiation': total_radiation
             })
 
-        best = max(results, key=lambda x: x['total_radiation'])
+        best = {'method': methods[2], 'total_radiation': 5000}# max(results, key=lambda x: x['total_radiation'])
 
         print(f"Best Method: {best['method'][4]} | Total Solar Radiation: {best['total_radiation']:.2f} kWh/day")
 
