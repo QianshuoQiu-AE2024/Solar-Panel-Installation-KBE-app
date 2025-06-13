@@ -13,14 +13,12 @@ class SolarPanel(GeomBase):
 
     @Attribute
     def type_size(self):
-        if self.type == "small":
-            return Vector(0.05, 0.991, 0.991)
-        elif self.type == "medium":
-            return Vector(0.05, 1.65, 0.991)
-        elif self.type == "large":
-            return Vector(0.05, 1.956, 0.991)
-        else:
-            return Vector(0.05, 0.991, 0.991)
+        sizes = {
+            "small":  (0.05, 0.991, 0.991),
+            "medium": (0.05, 1.65,  0.991),
+            "large":  (0.05, 1.956, 0.991),
+        }
+        return Vector(*sizes.get(self.type, sizes["small"]))
 
     @Attribute
     def shifted_position(self):
@@ -36,7 +34,8 @@ class SolarPanel(GeomBase):
                    centered=False,  # check in the class Box definition the effect of setting centered to False
                    color=self.color,
                    position=rotate(rotate(self.shifted_position,
-                                        'z',self.orientation,deg=True),
+                                        'z', self.orientation, deg=True),
+                                        #'y', self.tilt[1], deg=True),
                                         'x', self.tilt[0], deg=True))
 
 

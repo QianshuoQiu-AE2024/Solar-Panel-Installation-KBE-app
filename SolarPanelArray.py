@@ -1,5 +1,5 @@
 from parapy.core import Base, Input, Part, child, Attribute
-from parapy.geom import Position
+from parapy.geom import Position, Orientation
 from SolarPanel import SolarPanel
 from OptimizedPlacementCost import OptimizedPlacement
 
@@ -20,4 +20,5 @@ class SolarPanelArray(Base):
                           position=Position(self.optimizer.real_points[child.index]),
                           tilt=self.optimizer.tilt_xy,
                           orientation=self.optimizer.best_result[0][2])
+
 

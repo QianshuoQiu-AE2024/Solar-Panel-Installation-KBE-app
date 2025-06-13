@@ -35,6 +35,10 @@ class GableRoof(GeomBase):
         shifted = arr - centroid
         _, _, vh = np.linalg.svd(shifted)
         normal = vh[-1]
+        normal = Vector(*normal)
+        # make sure it points up:
+        if normal.z < 0:
+            normal = Vector(-normal.x, -normal.y, -normal.z)
         origin = Point(*centroid)
         return Plane(reference=origin, normal=Vector(*normal))
 
@@ -72,12 +76,42 @@ class GableRoof(GeomBase):
         shifted = arr - centroid
         _, _, vh = np.linalg.svd(shifted)
         normal = vh[-1]
+        normal = Vector(*normal)
+        # make sure it points up:
+        if normal.z < 0:
+            normal = Vector(-normal.x, -normal.y, -normal.z)
         origin = Point(*centroid)
         return Plane(reference=origin, normal=Vector(*normal))
 
 
+
     @Attribute(in_tree=True)
     def roof_wire_2(self):
+        pts = self.roof_pts
+        projected_pts = [
+            Point(float(p[0]), float(p[1]), float(p[2])) for p in [
+                pts[0].project(ref=self.roof_plane_2.location,
+                               axis1=self.roof_plane_2.orientation.x,
+                               axis2=self.roof_plane_2.orientation.y),
+                pts[2].project(ref=self.roof_plane_2.location,
+                               axis1=self.roof_plane_2.orientation.x,
+                               axis2=self.roof_plane_2.orientation.y),
+                pts[3].project(ref=self.roof_plane_2.location,
+                               axis1=self.roof_plane_2.orientation.x,
+                               axis2=self.roof_plane_2.orientation.y),
+                pts[5].project(ref=self.roof_plane_2.location,
+                               axis1=self.roof_plane_2.orientation.x,
+                               axis2=self.roof_plane_2.orientation.y)
+            ]
+        ]
+
+        return Wire([LineSegment(projected_pts[0], projected_pts[3]),
+                     LineSegment(projected_pts[3], projected_pts[2]),
+                     LineSegment(projected_pts[2], projected_pts[1]),
+                     LineSegment(projected_pts[1], projected_pts[0])])
+
+    @Attribute(in_tree=True)
+    def roof_wire_2_solid(self):
         pts = self.roof_pts
         projected_pts = [
             Point(float(p[0]), float(p[1]), float(p[2])) for p in [
@@ -101,11 +135,13 @@ class GableRoof(GeomBase):
                      LineSegment(projected_pts[2], projected_pts[3]),
                      LineSegment(projected_pts[3], projected_pts[0])])
 
+
+
     @Attribute
     def roof_faces(self):
         return [Face(self.roof_wire_1), Face(self.roof_wire_2)]
 
     @Part
     def roof_solid(self):
-        return LoftedSolid(profiles=[self.roof_wire_1, self.roof_wire_2])
+        return LoftedSolid(profiles=[self.roof_wire_1, self.roof_wire_2_solid])
 

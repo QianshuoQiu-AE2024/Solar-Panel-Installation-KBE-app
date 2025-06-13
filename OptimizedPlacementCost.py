@@ -1,6 +1,6 @@
 from parapy.core import Base, Input, Attribute, Part
 import requests
-from parapy.geom import Rectangle, Face, Point, Vector
+from parapy.geom import Rectangle, Face, Point, Vector, rotate
 from parapy.core.widgets import TextField
 from shapely.geometry import Polygon as ShapelyPolygon
 from shapely.geometry import Point as ShapelyPoint
@@ -26,10 +26,33 @@ class OptimizedPlacement(Base):
     def roof_normal(self):
         return self.roof_face.plane_normal.normalized
 
+    from parapy.geom import Vector, Point
+    import math
+
+    @Attribute
+    def flatten_gable_roof(self):
+        n = self.roof_face.plane_normal.normalized
+        # If already (nearly) horizontal, nothing to do
+        if n.is_parallel(Vector(0, 0, 1), tol=1e-2):
+            return self.roof_face
+
+        # 1) compute the angle between the face normal and vertical
+        angle = n.angle(Vector(0, 0, 1))  # returns radians
+
+        # 2) compute the “ridge line” axis:
+        #    the line about which to rotate is perpendicular to both the face normal and vertical
+        axis = n.cross(Vector(0, 0, 1)).normalized
+
+        # 3) pick a point on the face to rotate about (its centroid is fine)
+        center = self.roof_face.cog
+
+        # 4) rotate “down” by that angle:
+        return self.roof_face.rotated(axis, angle, reference_point=center)
+
     @Attribute
     def roof_poly(self):
         # Use outer wire (boundary) of face
-        xy = [(v.point.x, v.point.y) for v in self.roof_face.outer_wire.vertices]
+        xy = [(v.point.x, v.point.y) for v in self.flatten_gable_roof.outer_wire.vertices]
         return ShapelyPolygon(xy)
 
     @Attribute
@@ -65,6 +88,9 @@ class OptimizedPlacement(Base):
         # Pitch: rotation about X (tilt in Y direction)
         pitch_rad = math.atan2(-normal.y, normal.z)
         pitch_deg = math.degrees(pitch_rad)
+        if self.is_north_facing:
+            pitch_rad = math.atan2(normal.y, normal.z)
+            pitch_deg = math.degrees(pitch_rad)
         # Determine shift direction: positive shift if roof tilts "north", negative if "south"
         shift_sw = False if normal.z > 0 else True
         return [pitch_deg, shift_sw]
@@ -175,6 +201,10 @@ class OptimizedPlacement(Base):
         rotation_angle = -target_azimuth + 90
         return shapely_rotate(poly, rotation_angle, origin='centroid', use_radians=False)
 
+    @Attribute
+    def is_north_facing(self):
+        return self.roof_face.plane_normal.y > 0
+
     # Panel types
     @Attribute
     def panel_specs(self):
@@ -212,6 +242,8 @@ class OptimizedPlacement(Base):
     def optimize_method_1(self):
         wall_directions = self.compute_wall_directions(self.roof_poly)
         best_dir = self.find_closest_direction(wall_directions, self.optimal_azimuth)
+        if self.is_north_facing:
+            best_dir = (best_dir + 180) % 360
         rotated_poly = self.rotate_polygon_to_azimuth(self.roof_poly, best_dir)
         rotation_angle = -best_dir + 90
 
@@ -292,6 +324,8 @@ class OptimizedPlacement(Base):
     def optimize_method_2(self):
         wall_directions = self.compute_wall_directions(self.roof_poly)
         best_dir = self.find_closest_direction(wall_directions, self.optimal_azimuth)
+        if self.is_north_facing:
+            best_dir = (best_dir + 180) % 360
         rotated_poly = self.rotate_polygon_to_azimuth(self.roof_poly, best_dir)
         rotation_angle = -best_dir + 90
 
@@ -591,7 +625,7 @@ class OptimizedPlacement(Base):
             Point(vertex['x_real'], vertex['y_real'], self.roof_face.cog.z)
             for vertex in self.solar_panel_placement]
 
-    @Attribute(in_tree=True)
+    @Attribute
     def real_points(self):
         z = self.roof_face.plane_normal.normalized
         # Choose a non-parallel reference vector

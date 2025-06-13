@@ -5,14 +5,11 @@ from GableRoof import GableRoof
 
 
 class Roof(Base):
-    gable_roof_indices = Input([])
+    gable_roof_indices = Input([[4, 3, 7, 5]])
     base_height = Input()
     base_vertexes = Input()
     footprint = Input()
-
-    @Attribute
-    def slope_height(self):
-        return 2
+    slope_height = Input(2)
 
     @Attribute
     def normalized_footprint(self):

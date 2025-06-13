@@ -4,6 +4,7 @@ from Map import Map
 from Marker import Marker
 from Roof import Roof
 from SolarPanelArray import SolarPanelArray
+from parapy.exchange.step import STEPWriter
 
 
 
@@ -11,7 +12,7 @@ from SolarPanelArray import SolarPanelArray
 class House(Base):
     address = Input()
     floors = Input()
-    budget = Input(1700)
+    budget = Input(5000)
 
     @Attribute
     def floor_height(self):
@@ -74,23 +75,30 @@ class House(Base):
 
     @Attribute
     def face_budgets(self):
-        budgets = [0] * len(self.roof.roof_faces)
+        budgets = []
         remaining = self.budget
-        i = 0
 
         for face in self.roof.roof_faces:
+            n = face.plane_normal.normalized
+            if n.is_parallel(Vector(0, 0, 1), tol=1e-2):
+                cost = 95
+            else:
+                cost = 75
+
             face_area = face.area
-            panel_count = int(face_area // (1.35*2.1))
-            face_cost = panel_count * 95
+            panel_count = int(face_area // (1.35 * 2.1))
+            face_cost = panel_count * cost
 
             budget_for_face = min(remaining, face_cost)
-            budgets[i] = budget_for_face
+            budgets.append(budget_for_face)
             remaining -= budget_for_face
-            i =+ 1
 
             if remaining <= 0:
                 break
 
+            # pad with zeros if you broke early
+        while len(budgets) < len(self.roof.roof_faces):
+            budgets.append(0)
         return budgets
 
     @Part
@@ -119,8 +127,16 @@ class House(Base):
             coords=self.map.coords,
             budget=self.face_budgets[child.index])
 
+    @Part
+    def writer(self):
+        return STEPWriter(
+            nodes=[self.building, self.roof, self.solar_panel_arrays],
+            filename="house_with_solar_panels.stp"
+        )
+
 
 if __name__ == '__main__':
     from parapy.gui import display
     obj = House(address="Slangenstraat 48", floors=2) # roof_vertexes=[[4, 3, 7, 5], [1, 6, 8, 2]] #Bredabaan 614, Brasschaat
     display(obj)
+    # obj.writer.write()
