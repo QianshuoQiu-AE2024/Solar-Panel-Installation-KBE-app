@@ -42,9 +42,10 @@ class Map(GeomBase):
         Numeric index labels that help choosing *selected_building_index*.
     """
     address = Input()
-    range = Input(5)
-    selected_building_index = Input(0)
+    range = Input(5) # Defines the size of the clipping window in meters.
+    selected_building_index = Input(0) # Default to the first building in the list.
 
+    # get the OSM data for the given address, and turn into shapely geometries
     @Attribute
     def house(self):
         tags = {"building": True}
@@ -61,6 +62,7 @@ class Map(GeomBase):
         shapes = self.house.geometry
         return list(shapes)
 
+    # Get all the outline points of all the nearby buildings
     @Attribute
     def building_outline_points(self):
         results = []
@@ -81,9 +83,10 @@ class Map(GeomBase):
     def building_outline_centroids(self):
         return [Polygon(points=pts).cog for pts in self.building_outline_points]
 
+    # The primary footprint is the one selected by the user
     @Attribute
     def footprint(self):
-        geom = self.nearby_buildings[self.selected_building_index]
+        geom = self.nearby_buildings[self.selected_building_index] # INPUT USED HERE
         if isinstance(geom, MultiPolygon):
             geom = list(geom.geoms)[0]
         projected_geom, _ = ox.projection.project_geometry(geom)

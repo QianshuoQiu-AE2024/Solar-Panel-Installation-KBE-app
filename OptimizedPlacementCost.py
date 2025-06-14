@@ -88,15 +88,17 @@ class OptimizedPlacement(Base):
     heuristic – it is *fast* and good enough for *early-stage*
     design iterations.
     """
-    roof_face = Input()
-    coords = Input()
-    budget = Input()
-    loss = Input()
+    roof_face = Input()  # Face to be populated with solar panels.
+    coords = Input()  # [lat, lon] pair (decimal degrees) used for all PVGIS calls.
+    budget = Input()  # Maximum amount (EUR) that may be spent on this face.
+    loss = Input()  # Loss factor of solar panels only which is passed straight to PVGIS.
 
     @Attribute
     def roof_normal(self):
         return self.roof_face.plane_normal.normalized
 
+    # Rotate the roof face to 2D for Shapely operations
+    # Only done for non-flat roofs
     @Attribute
     def flatten_gable_roof(self):
         n = self.roof_face.plane_normal.normalized
@@ -111,12 +113,14 @@ class OptimizedPlacement(Base):
 
         return self.roof_face.rotated(axis, angle, reference_point=center)
 
+    # Turn roof face into a 2D Shapely polygon for better handling
     @Attribute
     def roof_poly(self):
         # Use outer wire (boundary) of face
         xy = [(v.point.x, v.point.y) for v in self.flatten_gable_roof.outer_wire.vertices]
         return ShapelyPolygon(xy)
 
+    # Get the optimal tilt and azimuth for the roof face using PVGIS
     @Attribute
     def optimal_angles(self):
         # PVGIS request
@@ -153,6 +157,9 @@ class OptimizedPlacement(Base):
     # -----------------------------
     # Reusable Functions
     # -----------------------------
+
+    # Normalize angles to be within -180 to 180 for azimuth and 0 to 90 for tilt
+    # Otherwise PVGIS will return an error
     @staticmethod
     def normalize_azimuth(angle):
         normalized = angle % 360
@@ -167,6 +174,7 @@ class OptimizedPlacement(Base):
             normalized -= 90
         return normalized
 
+    # This process slows down the code, so it is only used when necessary
     def calculate_solar_radiation(self, tilt, azimuth):
         """
         Calls PVGIS seriescalc API to get average daily solar radiation (kWh/m²/day)
@@ -184,10 +192,9 @@ class OptimizedPlacement(Base):
             'outputformat': 'json',
             'pvcalculation': 1,
             'peakpower': 1,
-            'loss': self.loss,
+            'loss': self.loss,  # Loss factor unimportant for radiation
             'usehorizon': 1
         }
-
 
         try:
             response = requests.get(radiation_url, params=params)
@@ -212,12 +219,14 @@ class OptimizedPlacement(Base):
             print(f"Radiation API call failed: {e}")
             return 0
 
+    # Calculate the bearing (azimuth) between two points
     def calculate_bearing(self, p1, p2):
         dx = p2[0] - p1[0]
         dy = p2[1] - p1[1]
         angle_rad = math.atan2(dy, dx)
         return math.degrees(angle_rad) % 360
 
+    # Compute wall directions based on the polygon's edges
     def compute_wall_directions(self, poly):
         coords = list(poly.exterior.coords)
         wall_directions = []
@@ -227,6 +236,7 @@ class OptimizedPlacement(Base):
             wall_directions.append((edge_dir + 90) % 360)
         return wall_directions
 
+    # Find the closest wall direction to the target azimuth (south-ish)
     def find_closest_direction(self, wall_directions, target_azimuth):
         min_diff = 360
         best_dir = None
@@ -239,23 +249,29 @@ class OptimizedPlacement(Base):
                 best_dir = wd
         return best_dir
 
+    # Rotate the polygon to align with the target azimuth
     def rotate_polygon_to_azimuth(self, poly, target_azimuth):
         rotation_angle = -target_azimuth + 90
         return shapely_rotate(poly, rotation_angle, origin='centroid', use_radians=False)
 
+    # Check if the roof face is north-facing
+    # Important for placement of panels on gable roof only
     @Attribute
     def is_north_facing(self):
         return self.roof_face.plane_normal.y > 0
 
-    # Panel types
+    # Panel types for common in europe
     @Attribute
     def panel_specs(self):
         return [
-            {'type': 'large', 'length': 0.991, 'width': 1.956, 'cost': 900*0.9},
-            {'type': 'medium', 'length': 0.991, 'width': 1.65, 'cost': 762*0.9},
-            {'type': 'small', 'length': 0.991, 'width': 0.991, 'cost': 457*0.9},
+            {'type': 'large', 'length': 0.991, 'width': 1.956, 'cost': 900 * 0.9},
+            {'type': 'medium', 'length': 0.991, 'width': 1.65, 'cost': 762 * 0.9},
+            {'type': 'small', 'length': 0.991, 'width': 0.991, 'cost': 457 * 0.9},
         ]
 
+    # Create a dictionary with characteristics of a single panel
+    # Includes projected length/width which is used for placement
+    # on flat roofs
     @Attribute
     def panels(self):
         tilt_rad = math.radians(self.tilt_angle_deg)
@@ -285,9 +301,9 @@ class OptimizedPlacement(Base):
         wall_directions = self.compute_wall_directions(self.roof_poly)
         best_dir = self.find_closest_direction(wall_directions, self.optimal_azimuth)
         if self.is_north_facing:
-            best_dir = (best_dir + 180) % 360
+            best_dir = (best_dir + 180) % 360  # Rotate direction for north-facing roofs
         rotated_poly = self.rotate_polygon_to_azimuth(self.roof_poly, best_dir)
-        rotation_angle = -best_dir + 90
+        rotation_angle = -best_dir + 90  # Rotate to align with wall direction
 
         def partition_roof_shape_based(poly, num_sections=3):
             minx, miny, maxx, maxy = poly.bounds
@@ -323,6 +339,7 @@ class OptimizedPlacement(Base):
                         if current_total_cost + panel['cost'] > self.budget:
                             continue
 
+                        # Create a rectangle for the panel placement
                         rect_shape = box(x, y, x + panel['eff_len'], y + panel['eff_wid'])
                         if section.contains(rect_shape) and roof_poly.buffer(-0.05, join_style=2).contains(rect_shape):
                             placements.append({
@@ -367,9 +384,9 @@ class OptimizedPlacement(Base):
         wall_directions = self.compute_wall_directions(self.roof_poly)
         best_dir = self.find_closest_direction(wall_directions, self.optimal_azimuth)
         if self.is_north_facing:
-            best_dir = (best_dir + 180) % 360
+            best_dir = (best_dir + 180) % 360  # Rotate direction for north-facing roofs
         rotated_poly = self.rotate_polygon_to_azimuth(self.roof_poly, best_dir)
-        rotation_angle = -best_dir + 90
+        rotation_angle = -best_dir + 90  # Rotate to align with wall direction
 
         def partition_roof_shape_based(poly, num_sections=1):
             minx, miny, maxx, maxy = poly.bounds
@@ -405,6 +422,7 @@ class OptimizedPlacement(Base):
                         if current_total_cost + panel['cost'] > self.budget:
                             continue
 
+                        # Create a rectangle for the panel placement
                         rect_shape = box(x, y, x + panel['eff_len'], y + panel['eff_wid'])
                         if section.contains(rect_shape) and roof_poly.buffer(-0.05, join_style=2).contains(rect_shape):
                             placements.append({
@@ -446,7 +464,7 @@ class OptimizedPlacement(Base):
     # -----------------------------
     @Attribute
     def optimize_method_3(self):
-        rotation_angle = -self.optimal_azimuth + 90
+        rotation_angle = -self.optimal_azimuth + 90  # Rotate to align with optimal azimuth
         rotated_poly = self.rotate_polygon_to_azimuth(self.roof_poly, self.optimal_azimuth)
 
         def partition_roof_shape_based(poly, num_sections=1):
@@ -483,6 +501,7 @@ class OptimizedPlacement(Base):
                         if current_total_cost + panel['cost'] > self.budget:
                             continue
 
+                        # Create a rectangle for the panel placement
                         rect_shape = box(x, y, x + panel['eff_len'], y + panel['eff_wid'])
                         if section.contains(rect_shape) and roof_poly.buffer(-0.05, join_style=2).contains(rect_shape):
                             placements.append({
@@ -525,7 +544,7 @@ class OptimizedPlacement(Base):
     # -----------------------------
     @Attribute
     def optimize_method_4(self):
-        rotation_angle = -self.optimal_azimuth + 90
+        rotation_angle = -self.optimal_azimuth + 90  # Rotate to align with optimal azimuth
         rotated_poly = self.rotate_polygon_to_azimuth(self.roof_poly, self.optimal_azimuth)
 
         def partition_roof_shape_based(poly, num_sections=3):
@@ -562,6 +581,7 @@ class OptimizedPlacement(Base):
                         if current_total_cost + panel['cost'] > self.budget:
                             continue
 
+                        # Create a rectangle for the panel placement
                         rect_shape = box(x, y, x + panel['eff_len'], y + panel['eff_wid'])
                         if section.contains(rect_shape) and roof_poly.buffer(-0.05, join_style=2).contains(rect_shape):
                             placements.append({
@@ -608,9 +628,11 @@ class OptimizedPlacement(Base):
             self.optimize_method_4,
         ]
         results = []
-        azimuth = 10000000
-        solar_radiation = 0
+        azimuth = 10000000  # dummy value to ensure the first method is always processed
+        solar_radiation = 0  # dummy value to ensure the first method is always processed
         for method in methods:
+            # if statemtent to esnure that calculate_solar_radiation is only called when azimuth changes
+            # otherwise it takes a lot of time to calculate the radiation
             if azimuth - method[2] >= 1e-2:
                 sw = True
             else:
@@ -631,6 +653,7 @@ class OptimizedPlacement(Base):
         if self.roof_face.plane_normal.is_parallel(Vector(0, 0, 1), tol=1e-2):
             best = max(results, key=lambda x: x['total_radiation'])
         else:
+            # For sloped roofs, we only consider wall-aligned methods
             best = max([results[0], results[1]], key=lambda x: x['total_radiation'])
         print(
             f"Best Method: {best['method'][4]} | Total Solar Radiation: {best['total_radiation']:.2f} kWh/day | Total Cost: {best['method'][5]}")
@@ -661,12 +684,14 @@ class OptimizedPlacement(Base):
             })
         return panel_vertices
 
+    # points on the flat roof face
     @Attribute
     def flat_points(self):
         return [
             Point(vertex['x_real'], vertex['y_real'], self.roof_face.cog.z)
             for vertex in self.solar_panel_placement]
 
+    # Project flat points onto the real sloped roof face, if it is not flat
     @Attribute(in_tree=True)
     def real_points(self):
         z = self.roof_face.plane_normal.normalized
@@ -685,6 +710,7 @@ class OptimizedPlacement(Base):
         if self.roof_face.plane_normal.is_parallel(Vector(0, 0, 1), tol=1e-2):
             tilt_rad = math.radians(self.optimal_angles[1])
 
+            # vector pointing in best direction from methods
             r = Vector(math.cos(math.radians(self.best_result[0][2])),
                        math.sin(math.radians(self.best_result[0][2])), 0).normalize
 
@@ -704,9 +730,10 @@ class OptimizedPlacement(Base):
 
         frames = []
         for placement, corner_pt in zip(self.best_result[0][0],
-                                        self.real_points):
+                             self.real_points):
             frame = Position(corner_pt, Orientation(x_axis, y_axis, n))
 
+            # Positions used for solar panels are defined with origin at lower-left corner
             frames.append(frame)
 
         return frames  # list[Position]

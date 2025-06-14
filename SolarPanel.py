@@ -1,5 +1,5 @@
 from parapy.core import Input, Part, Attribute
-from parapy.geom import GeomBase, Vector, rotate, Box, Position, Point
+from parapy.geom import GeomBase, Vector, Box, Position, Point
 
 
 
@@ -20,17 +20,22 @@ class SolarPanel(GeomBase):
     color : str | tuple
         Visualization of the solar panel type.
 
+    Part
+    ----------
+    module : parapy.geom.Box
+        Solar panel module modelled as a box with a specified height, width
+        and length. The color shows the type of solar panel and the position
+        is passed on from the optimizer solution.
+
     Notes
     -----
     * The Box uses ``centered=False`` so its “local (0,0,0)” is indeed
-      the lower-left corner that the lay-out optimiser works with.
+      the lower-left corner that the lay-out optimizer works with.
     """
 
-    type = Input()
-    position = Input()
-    tilt = Input()
-    orientation = Input()
-    color = Input()
+    type = Input() # 'small', 'medium', 'large'
+    position = Input() # panel_frame from OptimizedPlacementCost
+    color = Input() # Visulaization color of the solar panel type
 
     @Attribute
     def type_size(self):
@@ -41,8 +46,9 @@ class SolarPanel(GeomBase):
         }
         return Vector(*sizes.get(self.type, sizes["small"]))
 
+    # Generate the box geometry for the solar panel module
     @Part
-    def panel(self):
+    def module(self):
         return Box(height=self.type_size.x, width=self.type_size.y, length=self.type_size.z,
                    centered=False,
                    color=self.color,
@@ -52,12 +58,4 @@ class SolarPanel(GeomBase):
 if __name__ == '__main__':
     from parapy.gui import display
     display(SolarPanel(type='medium', position=Position(Point(1, 2, 3)), tilt=55, orientation=3))  # Example custom dimensions
-
-    # Check the positions of the circles in the Input tab of the GUI!
-    # Do you notice anything interesting? Pay special attention to crv5
-    # Although you translated the circle along the x- and y-axes,
-    # the 90-degree rotation altered its local orientation relative
-    # to the global frame. As a result, from a global perspective,
-    # the translation occurred along the x- and z-axes.
-    # (there are also ways to specify directions in other frames, including the global one)
 

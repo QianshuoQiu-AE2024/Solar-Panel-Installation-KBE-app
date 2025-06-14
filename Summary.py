@@ -22,10 +22,10 @@ class Summary(Base):
         EUR saved on a yearly basis.
     """
 
-    info = Input()
+    info = Input() # summary info : total cost, usable energy per year, money saved per year
 
     def _popup_error(self, title: str, msg: str):
-        dlg = Tk();
+        dlg = Tk()
         dlg.withdraw()  # hide the root window
         messagebox.showerror(title, msg)  # modal dialog
         dlg.destroy()
@@ -42,6 +42,8 @@ class Summary(Base):
     def money_saved(self):
         return self.info[2]
 
+    # Message and title attributes used to display a summary in the GUI.
+    # NOT WORKING YET.
     @Attribute
     def msg(self):
         msg = (f"Your solar panels cost €{int(self.info[0])} "

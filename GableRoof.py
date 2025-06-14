@@ -39,7 +39,7 @@ class GableRoof(GeomBase):
 
     Parts
     -----
-    roof_solid : parapy.geom.LoftedSolid
+    gable_roof_solid : parapy.geom.LoftedSolid
         Toy representation of the gable mass-model (optional).
     """
 
@@ -47,6 +47,7 @@ class GableRoof(GeomBase):
     gable_roof_vertexes = Input()
     slope_height = Input()
 
+    # Calculate ridge end and start points based on the four input vertexes.
     @Attribute
     def roof_pts(self):
         p0, p1, p2, p3 = self.gable_roof_vertexes
@@ -59,6 +60,8 @@ class GableRoof(GeomBase):
                 Point(p2.x, p2.y, self.base_height),
                 Point(p3.x, p3.y, self.base_height)]
 
+    # Wire of the flat part of the roof
+    # Only used for the solid representation
     @Attribute(in_tree=True)
     def roof_wire_0(self):
         return Wire([LineSegment(self.roof_pts[0], self.roof_pts[1]),
@@ -66,6 +69,8 @@ class GableRoof(GeomBase):
                      LineSegment(self.roof_pts[4], self.roof_pts[5]),
                      LineSegment(self.roof_pts[5], self.roof_pts[0])])
 
+    # Plane of first sloped roof face
+    # Used to project wire onto
     @Attribute()
     def roof_plane_1(self):
         pts = [self.roof_pts[1], self.roof_pts[2], self.roof_pts[3], self.roof_pts[4]]
@@ -75,12 +80,11 @@ class GableRoof(GeomBase):
         _, _, vh = np.linalg.svd(shifted)
         normal = vh[-1]
         normal = Vector(*normal)
-        # make sure it points up:
+        # This makes sure the nromal points upwards
         if normal.z < 0:
             normal = Vector(-normal.x, -normal.y, -normal.z)
         origin = Point(*centroid)
         return Plane(reference=origin, normal=Vector(*normal))
-
 
     @Attribute(in_tree=True)
     def roof_wire_1(self):
@@ -116,13 +120,11 @@ class GableRoof(GeomBase):
         _, _, vh = np.linalg.svd(shifted)
         normal = vh[-1]
         normal = Vector(*normal)
-        # make sure it points up:
+        # This makes sure the nromal points upwards
         if normal.z < 0:
             normal = Vector(-normal.x, -normal.y, -normal.z)
         origin = Point(*centroid)
         return Plane(reference=origin, normal=Vector(*normal))
-
-
 
     @Attribute(in_tree=True)
     def roof_wire_2(self):
@@ -143,7 +145,7 @@ class GableRoof(GeomBase):
                                axis2=self.roof_plane_2.orientation.y)
             ]
         ]
-
+        # Order of points is reversed in order ot make normal of face point upwards
         return Wire([LineSegment(projected_pts[0], projected_pts[3]),
                      LineSegment(projected_pts[3], projected_pts[2]),
                      LineSegment(projected_pts[2], projected_pts[1]),
@@ -179,6 +181,6 @@ class GableRoof(GeomBase):
         return [Face(self.roof_wire_1), Face(self.roof_wire_2)]
 
     @Part
-    def roof_solid(self):
+    def gable_roof_solid(self):
         return LoftedSolid(profiles=[self.roof_wire_1, self.roof_wire_2_solid])
 

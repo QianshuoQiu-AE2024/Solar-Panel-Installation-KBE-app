@@ -19,35 +19,32 @@ class SolarPanelArray(Base):
     loss : float, default 18 %
         Electrical loss factor.
 
-    Attributes
-    ----------
-    optimizer : :class:`OptimizedPlacement`
-        Performs heuristics to find best fitting geometric / financial /
-        energy yielding solar panel placement.
-
     Parts
     -----
-    panels : list[:class:`SolarPanel`]
+    solution : :class:`OptimizedPlacement`
+        Performs heuristics to find best fitting geometric / financial /
+        energy yielding solar panel placement.
+    solar_panels : list[:class:`SolarPanel`]
         Individual solar panels, positioned and typed by the optimizer.
     """
 
-    roof_face = Input()
-    coords = Input()
-    budget = Input()
-    loss = Input(18)
+    roof_face = Input() # Parapy Faces of both flat and gable roofs
+    coords = Input() # Latitude and longitude of the house
+    budget = Input() # Budget for this face
+    loss = Input(18) # Electrical loss factor, default 18%
 
-    @Attribute(in_tree=True)
-    def optimizer(self):
+    @Part
+    def solution(self):
         return OptimizedPlacement(roof_face=self.roof_face,
                                   coords=self.coords,
                                   budget=self.budget,
                                   loss=self.loss)
 
     @Part
-    def panels(self):
-        return SolarPanel(quantify=len(self.optimizer.real_points),
-                          type=self.optimizer.best_result[0][0][child.index]['type'],
-                          color=self.optimizer.best_result[0][0][child.index]['color'],
-                          position=self.optimizer.panel_frames[child.index])
+    def solar_panels(self):
+        return SolarPanel(quantify=len(self.solution.real_points),
+                          type=self.solution.best_result[0][0][child.index]['type'],
+                          color=self.solution.best_result[0][0][child.index]['color'],
+                          position=self.solution.panel_frames[child.index])
 
 

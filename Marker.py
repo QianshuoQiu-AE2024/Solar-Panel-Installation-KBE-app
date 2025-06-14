@@ -29,12 +29,12 @@ class Marker(Base):
         Label to indicate index of marked point.
     """
 
-    points = Input()
+    points = Input() # All points to mark, e.g. [Vector(0,0,0), Vector(1,1,1)]
     color = Input()
-    offset= Input(Vector(0,0,0))
-    radius = Input(0.25)
+    offset= Input(Vector(0,0,0)) # Translation applied to all points before rendering.
+    radius = Input(0.25) # Radius of marker sphere
     text_size = Input(0.8)
-    hidden = Input(False)
+    hidden = Input(False) # SHould be hidden by default, enable by user if needed.
 
 
     @Part

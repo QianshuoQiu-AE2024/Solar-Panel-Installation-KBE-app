@@ -1,7 +1,5 @@
 from parapy.core import Base, Input, Attribute, Part, child
 from parapy.geom import Wire, LineSegment, Point, ExtrudedSolid, Vector
-
-from Experimentation.optimizer_final import writer
 from Map import Map
 from Marker import Marker
 from Roof import Roof
@@ -37,13 +35,13 @@ class House(Base):
     budget : float
         Maximum amount (EUR) available for PV installation. This si a first estimate, will
         deviate from the final cost.
-
-    Important attributes
-    --------------------
     electrical_efficiency : float
         Static, user-tunable DC/AC efficiency factor (η\_AC).
     base_height : float
         Total extrusion height (= ``floors * floor_height``).
+
+    Important attributes
+    --------------------
     base_pts : list[parapy.geom.Point]
         Footprint vertices expressed in a local XY frame (z = 0).
     extended_pts : list[parapy.geom.Point]
@@ -74,23 +72,19 @@ class House(Base):
     """
 
     address = Input()
-    floors = Input()
-    budget = Input()
-
-    @Attribute
-    def electrical_efficiency(self):
-        return 0.98
-
-    @Attribute
-    def floor_height(self):
-        return 2.0
+    floors = Input() # nr of storeys, not including the roof
+    budget = Input() # EUR, budget for solar panel installation
+    electrical_efficiency = Input(0.98)
+    floor_height = Input(2.0)
 
     @Attribute
     def base_height(self):
         return self.floors * self.floor_height
 
+
     @Attribute
     def base_pts(self):
+        # list of tuples (x, y) defining the footprint of house polygon
         coords = list(self.map.footprint.exterior.coords)
         if coords[0] != coords[-1]:
             coords.append(coords[0])
@@ -100,6 +94,9 @@ class House(Base):
 
         return [Point(snap(x - coords[0][0]), snap(y - coords[0][1]), 0) for x, y in coords]
 
+
+    # Extended points are used to construct gable roofs
+    # These points are teh intersections of the base polygon edges
     @Attribute
     def extended_intersections(self):
         intersections = []
@@ -134,12 +131,18 @@ class House(Base):
     def combined_points(self):
         return self.base_pts[:-1] + self.extended_intersections
 
+    # The base wire is the wire that defines the base of the house
+    # It is used to extrude the base solid
+    # And consists of line segments connecting the base points
     @Attribute
     def base_wire(self):
         segments = [LineSegment(start=self.base_pts[i], end=self.base_pts[i + 1])
                     for i in range(len(self.base_pts) - 1)]
         return Wire(segments)
 
+
+    # The face budgets are estimations based on the roof faces
+    # and the budget available for solar panel installation.
     @Attribute
     def face_budgets(self):
         budgets = []
@@ -150,7 +153,7 @@ class House(Base):
             if n.is_parallel(Vector(0, 0, 1), tol=1e-2):
                 cost = 900 * 0.9
             else:
-                cost = 0.82 * 900 * 0.9
+                cost = 0.82 * 900 * 0.9 # non-flat roofs fit less panels, manual adjustment
 
             face_area = face.area
             panel_count = int(face_area // (1.4 * 2.1))
@@ -183,8 +186,6 @@ class House(Base):
 
         return total_cost, usable_energy, money_saved
 
-
-
     @Part
     def building(self):
         return ExtrudedSolid(island=self.base_wire, distance=self.base_height)
@@ -193,6 +194,8 @@ class House(Base):
     def map(self):
         return Map(address=self.address)
 
+    # Mark the roof vertexes in the GUI, user can use these for refrence
+    # When generating a gable roof
     @Part
     def roof_vertexes(self):
         return Marker(points=self.combined_points, color='red', offset=Vector(0, 0, self.base_height))
@@ -211,11 +214,11 @@ class House(Base):
             coords=self.map.coords,
             budget=self.face_budgets[child.index])
 
-
+    # The STEPWriter exports to a STEP file
     @Part
     def writer(self):
         return STEPWriter(
-            nodes=[self.building, self.roof, self.solar_panel_arrays],
+            trees=[self],
             filename="OUTPUT\\house_with_solar_panels.stp"
         )
 
@@ -226,6 +229,6 @@ class House(Base):
 
 if __name__ == '__main__':
     from parapy.gui import display
-    obj = House(address="Slangenstraat 48", floors=2) # roof_vertexes=[[4, 3, 7, 5], [1, 6, 8, 2]] #Bredabaan 614, Brasschaat
+    obj = House(address="Slangenstraat 48", floors=2, budget=1000000)
     display(obj)
     obj.writer.write()

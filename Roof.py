@@ -41,8 +41,9 @@ class Roof(Base):
         Union of all flat + sloped faces; drives the solar panel array installer.
     """
 
+    # Create a Tk root window to use for pop-up dialogs
     def _popup_error(self, title: str, msg: str):
-        dlg = Tk();
+        dlg = Tk()
         dlg.withdraw()  # hide the root window
         messagebox.showerror(title, msg)  # modal dialog
         dlg.destroy()
@@ -63,7 +64,7 @@ class Roof(Base):
                        f"Recommended to use 2D arrays: [[1, 2, 3, 4]].")
                 self._popup_error("Invalid gable_roof_indices", msg)
                 raise ValueError(msg)
-            if not(len(item) == 4 or len(item) == 0):
+            if not (len(item) == 4 or len(item) == 0):
                 msg = f"Entry #{k} must have exactly 4 elements, got {len(item)}."
                 self._popup_error("Invalid gable_roof_indices", msg)
                 raise ValueError(msg)
@@ -75,24 +76,31 @@ class Roof(Base):
                     raise ValueError(msg)
         return True
 
+    # gable_roof_indices are the indices of the base_vertexes
+    # that define the corners of the gable roofs.
+    # Each gable roof is defined by a list of 4 indices, e.g.:
+    # [[4, 3, 2, 7], [1, 6, 8, 2]] means two gable roofs
     gable_roof_indices = Input([], validator=_validate_gable_indices, doc="List of 4-int index lists")
-    slope_height = Input(2)
-    base_height = Input()
-    base_vertexes = Input()
-    footprint = Input()
+    slope_height = Input(2)  # Vertical rise of every gable ridge
+    base_height = Input()  # Z level of the roof’s footprint (usually the top floor slab)
+    base_vertexes = Input()  # Sequence of parapy.geom.Point defining the outer roof shape
+    footprint = Input()  # Shapely Polygon defining the outer roof shape
 
-
+    # Normalized footprint and snap coordinates to a grid
+    # If footprint is not normalized, parapy cant handle the large numbers
     @Attribute
     def normalized_footprint(self):
         coords = list(self.footprint.exterior.coords)
         x0, y0 = coords[0]
 
+        # Snap coordinates to a grid with resolution `res`
         def snap(x, res=0.05):
             return round(x / res) * res
 
         normalized_coords = [(snap(x - x0), snap(y - y0)) for x, y in coords]
         return ShapelyPolygon(normalized_coords)
 
+    # Define the flat roof as polygon without the gable roofs
     @Attribute
     def flat_roof(self):
         flat_roof = self.normalized_footprint
@@ -115,7 +123,7 @@ class Roof(Base):
 
         for poly in polygons:
             coords = list(poly.exterior.coords)
-            # build points + segments only if we have at least 3 points
+            # build points + segments only if at least 3 points
             if len(coords) < 3:
                 continue
             pts = [Point(x, y, self.base_height) for x, y in coords]
@@ -125,6 +133,7 @@ class Roof(Base):
 
         return wires
 
+    # Make the gable roofs
     @Part
     def gable_roofs(self):
         return GableRoof(
@@ -137,17 +146,21 @@ class Roof(Base):
     def gable_roof_faces(self):
         return self.gable_roofs.roof_faces
 
+    # Get all roof wires, including flat and gable roofs
     @Attribute(in_tree=True)
     def roof_wires(self):
         return self.flat_roof_wires + \
             [child.roof_wire_1 for child in self.gable_roofs] + \
             [child.roof_wire_2 for child in self.gable_roofs]
 
+    # Create the roof faces from the flat roof and gable roofs
     @Part
     def roof_faces(self):
         return Face(quantify=len(self.roof_wires), island=self.roof_wires[child.index])
 
+
 if __name__ == '__main__':
     from parapy.gui import display
+
     obj = Roof(gable_roof_vertexes=[[4, 3, 2, 7], [1, 6, 8, 2]])
     display(obj)
