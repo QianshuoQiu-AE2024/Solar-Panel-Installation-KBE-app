@@ -1,6 +1,6 @@
 from parapy.core import Base, Input, Attribute
 import requests
-from parapy.geom import Rectangle, Face, Point, Vector
+from parapy.geom import Rectangle, Face, Point, Vector, Position, Orientation
 from shapely.geometry import Polygon as ShapelyPolygon
 from shapely.geometry import Point as ShapelyPoint
 from shapely.geometry import box
@@ -9,6 +9,85 @@ import math
 
 
 class OptimizedPlacement(Base):
+    """
+    Heavy-duty optimisation helper that decides **how many**, **which
+    type** and **where** to place panels on a *single* roof face.
+
+    Workflow
+    --------
+    1.  The roof face is flattened (if necessary) so that Shapely can
+        operate in 2-D.
+    2.  Four alternative heuristics try to fill the available polygon
+        with rectangular panels (with / without sectioning, at wall-
+        aligned or optimal PVGIS azimuth).
+        Each heuristic returns    *(placements, area, azimuth, …)*.
+    3.  For every heuristic a call to PVGIS `seriescalc` estimates the
+        daily irradiation → kWh.  The method with the highest yield (or
+        lowest cost on a sloped roof) wins.
+    4.  The chosen rectangles are mapped back to 3-D Positions that are
+        later used by :class:`SolarPanel`.
+
+    Inputs
+    ------------------
+    roof_face : parapy.geom.Face
+        The roof patch that is populated with solar panels.
+    coords : list[float]
+        ``[lat, lon]`` pair (decimal degrees) used for all PVGIS calls.
+    budget : float
+        Maximum amount (EUR) that may be spent on this face.
+    loss : float, default 18 %
+        Loss factor of solar panels only which is passed straight to PVGIS.
+
+    Important attributes
+    -----------------
+    roof_poly : ShapelyPolygon
+        2D polygon of roof face that is used to find the best solar panel setup.
+    optimal_angle : tuple(float)
+        PVGIS call to find the optimal tilt and azimuth angles for this face's
+        longitude and latitude.
+    calculate_solar_radiation : float
+        PVGIS call to calculate the daily solar radiation of a solar panel
+        array. It handles errors when given input angles are not normalized.
+    find_closest_direction : float
+        Calculates the closest direction to the optimal azimuth for a specific
+        roof face. This way, wall-aligned solar panels are oriented correctly.
+    panel_specs : dict{key : float}
+        Defines the length, width, height and cost of three different types
+        of solar panels common in europe.
+    panel : dict{key : float,str}
+        Defines the characteristics of one specific solar panel. For example:
+        the projected length/width, type, cost etc.
+
+    Heuristics
+    -----------------
+    optimize_method_1 : tuple(placements[dict], proj_area, azimuth, rot_angle, name, total_cost)
+        Places the solar panels aligned with the wall of the roof face.
+        First divides the roof face into sections before placement.
+    optimize_method_2 : tuple(placements[dict], proj_area, azimuth, rot_angle, name, total_cost)
+        Places the solar panels aligned with the wall of the roof face.
+    optimize_method_3 : tuple(placements[dict], proj_area, azimuth, rot_angle, name, total_cost)
+        Places the solar panels in their optimal azimuth position.
+    optimize_method_3 : tuple(placements[dict], proj_area, azimuth, rot_angle, name, total_cost)
+        Places the solar panels in their optimal azimuth position.
+        First divides the roof face into sections before placement.
+
+    Result attributes
+    -----------------
+    best_result : tuple
+        *(placements[dict], proj_area, azimuth, rot_angle, name, total_cost)*
+        of the winning heuristic.
+    panel_frames : list[parapy.geom.Position]
+        Fully defined local frames for every panel (origin = lower-left
+        corner; +X = row direction; +Z = roof normal).
+    annual_solar_radiation : float
+        Estimated DC kWh per **year** for this face.
+
+    Notes
+    -----
+    * The "optimiser" is in fact not an optimizer but intentionally
+    heuristic – it is *fast* and good enough for *early-stage*
+    design iterations.
+    """
     roof_face = Input()
     coords = Input()
     budget = Input()
@@ -21,21 +100,15 @@ class OptimizedPlacement(Base):
     @Attribute
     def flatten_gable_roof(self):
         n = self.roof_face.plane_normal.normalized
-        # If already (nearly) horizontal, nothing to do
         if n.is_parallel(Vector(0, 0, 1), tol=1e-2):
             return self.roof_face
 
-        # 1) compute the angle between the face normal and vertical
         angle = n.angle(Vector(0, 0, 1))  # returns radians
 
-        # 2) compute the “ridge line” axis:
-        #    the line about which to rotate is perpendicular to both the face normal and vertical
         axis = n.cross(Vector(0, 0, 1)).normalized
 
-        # 3) pick a point on the face to rotate about (its centroid is fine)
         center = self.roof_face.cog
 
-        # 4) rotate “down” by that angle:
         return self.roof_face.rotated(axis, angle, reference_point=center)
 
     @Attribute
@@ -63,26 +136,6 @@ class OptimizedPlacement(Base):
         optimal_tilt = data['inputs']['mounting_system']['fixed']['slope']['value']
         optimal_azimuth = data['inputs']['mounting_system']['fixed']['azimuth']['value']
         return [optimal_azimuth, optimal_tilt]
-
-    from parapy.geom import Position, Vector
-    @Attribute
-    def tilt_xy(self):
-        if self.roof_face.plane_normal.is_parallel(Vector(0, 0, 1), tol=1e-2):
-            # FLAT ROOF: tilt south by optimal tilt angle
-            tilt_rad = math.radians(self.optimal_angles[1])
-            normal = Vector(0, -math.sin(tilt_rad), math.cos(tilt_rad)).normalized
-        else:
-            # SLOPED ROOF: use actual normal
-            normal = self.roof_normal
-        # Pitch: rotation about X (tilt in Y direction)
-        pitch_rad = math.atan2(-normal.y, normal.z)
-        pitch_deg = math.degrees(pitch_rad)
-        if self.is_north_facing:
-            pitch_rad = math.atan2(normal.y, normal.z)
-            pitch_deg = math.degrees(pitch_rad)
-        # Determine shift direction: positive shift if roof tilts "north", negative if "south"
-        shift_sw = False if normal.z > 0 else True
-        return [pitch_deg, shift_sw]
 
     @Attribute
     def tilt_angle_deg(self):
@@ -614,7 +667,7 @@ class OptimizedPlacement(Base):
             Point(vertex['x_real'], vertex['y_real'], self.roof_face.cog.z)
             for vertex in self.solar_panel_placement]
 
-    @Attribute
+    @Attribute(in_tree=True)
     def real_points(self):
         z = self.roof_face.plane_normal.normalized
         # Choose a non-parallel reference vector
@@ -626,6 +679,37 @@ class OptimizedPlacement(Base):
             flat_pt.project(ref=origin, axis1=x, axis2=y)
             for flat_pt in self.flat_points
         ]
+
+    @Attribute
+    def panel_frames(self):
+        if self.roof_face.plane_normal.is_parallel(Vector(0, 0, 1), tol=1e-2):
+            tilt_rad = math.radians(self.optimal_angles[1])
+
+            r = Vector(math.cos(math.radians(self.best_result[0][2])),
+                       math.sin(math.radians(self.best_result[0][2])), 0).normalize
+
+            n = Vector(0, 0, 1).rotate(r, tilt_rad)
+
+            x_axis = r  # along the row
+            y_axis = n.cross(x_axis).normalize
+        else:
+            # sloped roof → just use the real roof normal
+            n = self.roof_face.plane_normal.normalize
+            az = self.best_result[0][2]  # best_dir
+
+            horiz = Vector(math.cos(math.radians(az)),
+                           math.sin(math.radians(az)), 0)
+            x_axis = (horiz - n * horiz.dot(n)).normalize
+            y_axis = n.cross(x_axis).normalize
+
+        frames = []
+        for placement, corner_pt in zip(self.best_result[0][0],
+                                        self.real_points):
+            frame = Position(corner_pt, Orientation(x_axis, y_axis, n))
+
+            frames.append(frame)
+
+        return frames  # list[Position]
 
     @Attribute
     def annual_solar_radiation(self):
@@ -641,7 +725,6 @@ class OptimizedPlacement(Base):
         # Annual radiation = actual area * daily * 365
         annual_radiation = actual_area * daily_solrad * 365
         return annual_radiation
-
 
 
 if __name__ == '__main__':

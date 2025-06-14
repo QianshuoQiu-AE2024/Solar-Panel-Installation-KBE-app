@@ -5,6 +5,42 @@ from shapely.geometry import MultiPolygon
 
 
 class Map(GeomBase):
+    """
+    Downloads and normalises nearby building footprints from **osmnx** API.
+
+    Inputs
+    ----------
+    address : str
+        Search centre – any string acceptable by Nominatim.
+    range : float, default 5 m
+        Half-length of the square clipping window around *address*
+        (metric because we use the projected CRS returned by osmnx).
+    selected_building_index : int, default 0
+        Index in :pyattr:`nearby_buildings` that will be exposed as the
+        *primary* footprint (:pyattr:`footprint`).
+
+    Important attributes
+    -------------
+    coords : list[float]
+        ``[lat, lon]`` pair of the centroid of the primary building
+        footprint (used for the PVGIS calls).
+    nearby_buildings : list[shapely.Polygon|shapely.MultiPolygon]
+        Raw footprints around the address.
+    building_outline_points : list[list[parapy.geom.Point]]
+        Same geometry, but projected to a *local* XY frame whose origin
+        equals the first point of the primary footprint.  Ready to be
+        rendered by :class:`parapy.geom.Polygon`.
+    footprint : shapely.Polygon
+        The *projected* footprint that downstream logic (Roof etc.)
+        operates on.
+
+    Parts
+    -----
+    building_outlines : parapy.geom.Polygon
+        Light-grey context blocks.
+    building_labels : parapy.geom.TextLabel
+        Numeric index labels that help choosing *selected_building_index*.
+    """
     address = Input()
     range = Input(5)
     selected_building_index = Input(0)
@@ -22,13 +58,11 @@ class Map(GeomBase):
 
     @Attribute
     def nearby_buildings(self):
-        """Get all building footprints around the address."""
         shapes = self.house.geometry
         return list(shapes)
 
     @Attribute
     def building_outline_points(self):
-        """Normalized building outlines relative to first polygon's origin."""
         results = []
         reference_geom = self.nearby_buildings[0]
         ref_poly = reference_geom if reference_geom.geom_type == "Polygon" else list(reference_geom.geoms)[0]
@@ -49,7 +83,6 @@ class Map(GeomBase):
 
     @Attribute
     def footprint(self):
-        """Either the first building or a user-selected alternative."""
         geom = self.nearby_buildings[self.selected_building_index]
         if isinstance(geom, MultiPolygon):
             geom = list(geom.geoms)[0]

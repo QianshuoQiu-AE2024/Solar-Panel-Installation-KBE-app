@@ -4,6 +4,45 @@ import numpy as np
 
 
 class GableRoof(GeomBase):
+    """
+    Builds a single symmetric gable roof from four base vertices.
+
+    The constructor derives two *sloped* quadrilateral faces and a
+    lofted solid:
+
+    0,1 –> ridge –> 4,5
+          ^            ^
+          |            |
+          p0,p1      p2,p3  (indices refer to *roof_pts*)
+
+    Inputs
+    ----------
+    base_height : float
+        Z-level of the flat roof (bottom of the sloped planes).
+    gable_roof_vertexes : Sequence[parapy.geom.Point]
+        Exactly **four** corner points in clockwise order.
+    slope_height : float
+        Vertical rise between the flat roof and the ridge line.
+
+    Important Attributes
+    ----------
+    roof_pts : list[parapy.geom.Point]
+        Convenience list containing the 6 key vertices used downstream.
+    roof_wire_1 / roof_wire_2 : parapy.geom.Wire
+        Line segment construction of each sloped face – used both for creating
+        the roof faces.
+    roof_plane_1 / roof_plane_2 : parapy.geom.Plane
+        Planes on which the roof wires are projected to obtain a planar sloped
+        roof face.
+    roof_faces : list[parapy.geom.Face]
+        The actual sloped faces (two per roof pitch).
+
+    Parts
+    -----
+    roof_solid : parapy.geom.LoftedSolid
+        Toy representation of the gable mass-model (optional).
+    """
+
     base_height = Input()
     gable_roof_vertexes = Input()
     slope_height = Input()
@@ -134,8 +173,6 @@ class GableRoof(GeomBase):
                      LineSegment(projected_pts[1], projected_pts[2]),
                      LineSegment(projected_pts[2], projected_pts[3]),
                      LineSegment(projected_pts[3], projected_pts[0])])
-
-
 
     @Attribute
     def roof_faces(self):

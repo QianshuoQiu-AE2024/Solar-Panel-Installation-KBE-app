@@ -1,5 +1,7 @@
 from parapy.core import Base, Input, Attribute, Part, child
 from parapy.geom import Wire, LineSegment, Point, ExtrudedSolid, Vector
+
+from Experimentation.optimizer_final import writer
 from Map import Map
 from Marker import Marker
 from Roof import Roof
@@ -11,9 +13,69 @@ from Summary import Summary
 
 
 class House(Base):
+    """
+    High-level class that ties the whole program together.
+
+    A :class:`House` object:
+
+    * retrieves an OSM building footprint (:class:`Map`)
+    * allows for cycling through different buildings around one address
+    * constructs base floors, a roof (flat + optional gable roofs)
+    * places set of optimal solar panel arrays on the roof
+    * keeps track of the project budget and electricity savings
+    * can export everything to STEP file
+    * maks a summary with the financial result
+
+    Inputs
+    ----------
+    address : str
+        Free-format address understood by **osmnx**.
+        Used to retrieve the main building footprint.
+    floors : int
+        Number of storeys.  Multiplies with ``floor_height`` to get the
+        extrusion height.
+    budget : float
+        Maximum amount (EUR) available for PV installation. This si a first estimate, will
+        deviate from the final cost.
+
+    Important attributes
+    --------------------
+    electrical_efficiency : float
+        Static, user-tunable DC/AC efficiency factor (η\_AC).
+    base_height : float
+        Total extrusion height (= ``floors * floor_height``).
+    base_pts : list[parapy.geom.Point]
+        Footprint vertices expressed in a local XY frame (z = 0).
+    extended_pts : list[parapy.geom.Point]
+        Extra point used to construct gable roof.
+    summary_info : list[int, float, int]
+        List of the total solar panel cost, usable power generated and yearly money saved.
+    Parts
+    -----
+    building : :class:`parapy.geom.ExtrudedSolid`
+        Solid representation of the extruded floor plan geometry.
+    roof : :class:`Roof`
+        Composite roof (flat + any gables).
+    solar_panel_arrays : list[:class:`SolarPanelArray`]
+        One array per roof face that receives a non-zero budget.
+    writer : :class:`parapy.exchange.STEPWriter`
+        Optional STEP export (*.stp) of the three solids above.
+    summary : :class:`Summary`
+        Pops up the cost / energy yield / savings calculation.
+
+    Notes
+    -----
+    * All geometries are modelled in a *local* Cartesian frame whose origin
+      coincides with the first footprint vertex.
+    * Budget is distributed *greedily* per face: when it runs out the
+      remaining faces simply receive ``0 €``. This prioritises flat roofs to
+      be filled with solar panels first as they are more efficient, due to their
+      free choice of tilt angle.
+    """
+
     address = Input()
     floors = Input()
-    budget = Input(120000)
+    budget = Input()
 
     @Attribute
     def electrical_efficiency(self):
@@ -115,11 +177,11 @@ class House(Base):
             total_cost += array.optimizer.best_result[0][5]
             # Total annual solar radiation
             total_radiation += array.optimizer.annual_solar_radiation
-        usable_power = self.solar_panel_arrays[0].loss/100 * self.electrical_efficiency * total_radiation
+        usable_energy = self.solar_panel_arrays[0].loss/100 * self.electrical_efficiency * total_radiation
         # Money saved per year from solar panels assuming cost of kwh is 0.3 EUR
-        money_saved = usable_power * 0.3
+        money_saved = usable_energy * 0.3
 
-        return total_cost, usable_power, money_saved
+        return total_cost, usable_energy, money_saved
 
 
 
@@ -166,10 +228,4 @@ if __name__ == '__main__':
     from parapy.gui import display
     obj = House(address="Slangenstraat 48", floors=2) # roof_vertexes=[[4, 3, 7, 5], [1, 6, 8, 2]] #Bredabaan 614, Brasschaat
     display(obj)
-    # Pull out your two numbers:
-    total_cost, annual_kwh, money_saved = obj.summary_info
-    print(f"Your solar panels cost €{int(total_cost)}"
-        f"and will produce about {annual_kwh:.0f} kWh per year"
-        f"saving an average of €{int(money_saved)} per year")
-
-    # obj.writer.write()
+    obj.writer.write()

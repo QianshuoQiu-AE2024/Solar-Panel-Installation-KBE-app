@@ -2,42 +2,76 @@ from parapy.core import Base, Input, Attribute, Part, child
 from parapy.geom import Face, Point, LineSegment, Wire
 from shapely.geometry import Polygon as ShapelyPolygon
 from GableRoof import GableRoof
-import warnings
+from tkinter import Tk, messagebox
 
 
 class Roof(Base):
-    # ------------------------------------------------------------------
-    # Custom validator for the gable-roof index input
-    # ------------------------------------------------------------------
+    """
+    Composite roof consisting of a standard flat surface with
+    any number of gable roofs that are carved out of it.
+
+    The gables are defined by **indices** into the list of
+    ``base_vertexes`` passed from :class:`House`.
+
+    Validation
+    ----------
+    * Each entry in :pyattr:`gable_roof_indices` must be a list/tuple of
+      **exactly four or zero integers** – corresponding to the rectangular patch
+      that forms a single gable roof.
+    * Violations raise :class:`ValueError` *and* show a Tk warning pop-up
+      so that interactive users see the problem immediately.
+
+    Inputs
+    ----------
+    gable_roof_indices : list[list[int]]
+        2-D array of 4-int index lists; empty 2D list means “no gables”.
+    slope_height : float, default 2 m
+        Vertical rise of every gable ridge.
+    base_height : float
+        Z level of the roof’s footprint (usually the top floor slab).
+    base_vertexes : Sequence[parapy.geom.Point]
+        Planar polygon that delimits the *outer* roof shape.
+    footprint : shapely.Polygon
+        Same outline, but as Shapely geometry (used for differences etc.).
+
+    Parts
+    -----
+    gable_roofs : list[:class:`GableRoof`]
+    roof_faces  : list[parapy.geom.Face]
+        Union of all flat + sloped faces; drives the solar panel array installer.
+    """
+
+    def _popup_error(self, title: str, msg: str):
+        dlg = Tk();
+        dlg.withdraw()  # hide the root window
+        messagebox.showerror(title, msg)  # modal dialog
+        dlg.destroy()
+
     def _validate_gable_indices(self, val):
-        """
-        Accepts only a list/tuple whose *items* are lists/tuples of **4 ints**,
-        e.g. [[4, 3, 7, 5], [1, 8, 2, 6]].
-        Raises ValueError (ParaPy shows this in the GUI) *and* gives a pop-up.
-        """
-        # 1) Must be an outer list/tuple
+        # Must be an outer list/tuple
         if not isinstance(val, (list, tuple)):
             msg = (f"`gable_roof_indices` must be a list/tuple of 4-element "
                    f"lists, got {type(val).__name__}.")
-            warnings.warn(msg)
+            self._popup_error("Invalid gable_roof_indices", msg)
             raise ValueError(msg)
 
-        # 2) Check every sub-item
+        # Check every sub-item
         for k, item in enumerate(val):
             if not isinstance(item, (list, tuple)):
                 msg = (f"Entry #{k} must itself be a list/tuple, "
-                       f"got {type(item).__name__}. Recommended to use a 2D array [[1, 2, 3, 4]].")
-                warnings.warn(msg)
+                       f"got {type(item).__name__}. "
+                       f"Recommended to use 2D arrays: [[1, 2, 3, 4]].")
+                self._popup_error("Invalid gable_roof_indices", msg)
                 raise ValueError(msg)
-            if len(item) != 4:
+            if not(len(item) == 4 or len(item) == 0):
                 msg = f"Entry #{k} must have exactly 4 elements, got {len(item)}."
-                warnings.warn(msg)
+                self._popup_error("Invalid gable_roof_indices", msg)
                 raise ValueError(msg)
             for j, idx in enumerate(item):
                 if not isinstance(idx, int):
                     msg = (f"gable_roof_indices[{k}][{j}] must be an int, "
                            f"got {type(idx).__name__}.")
-                    warnings.warn(msg)
+                    self._popup_error("Invalid gable_roof_indices", msg)
                     raise ValueError(msg)
         return True
 
@@ -50,7 +84,6 @@ class Roof(Base):
 
     @Attribute
     def normalized_footprint(self):
-        """Return a normalized shapely polygon (shifted so first point is at (0,0))."""
         coords = list(self.footprint.exterior.coords)
         x0, y0 = coords[0]
 
@@ -71,17 +104,24 @@ class Roof(Base):
 
     @Attribute
     def flat_roof_wires(self):
-        wires = []
+        # if there's no flat area at all, skip it entirely
+        if self.flat_roof.is_empty or self.flat_roof.area < 1e-6:
+            return []
 
-        polygons = [self.flat_roof] if self.flat_roof.geom_type == "Polygon" else list(self.flat_roof.geoms)
+        wires = []
+        polygons = ([self.flat_roof]
+                    if self.flat_roof.geom_type == "Polygon"
+                    else list(self.flat_roof.geoms))
 
         for poly in polygons:
             coords = list(poly.exterior.coords)
-            points = [Point(x, y, self.base_height) for x, y in coords]
-
-            segments = [LineSegment(points[i], points[i + 1]) for i in range(len(points) - 1)]
-            wire = Wire(segments)
-            wires.append(wire)
+            # build points + segments only if we have at least 3 points
+            if len(coords) < 3:
+                continue
+            pts = [Point(x, y, self.base_height) for x, y in coords]
+            segments = [LineSegment(pts[i], pts[i + 1])
+                        for i in range(len(pts) - 1)]
+            wires.append(Wire(segments))
 
         return wires
 

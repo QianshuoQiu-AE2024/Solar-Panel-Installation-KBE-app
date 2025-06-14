@@ -4,6 +4,33 @@ from SolarPanel import SolarPanel
 from OptimizedPlacementCost import OptimizedPlacement
 
 class SolarPanelArray(Base):
+    """
+    Container that groups all :class:`SolarPanel` objects belonging to a
+    *single* roof face.
+
+    Inputs
+    ----------
+    roof_face : parapy.geom.Face
+        Support surface – forwarded to :class:`OptimizedPlacement`.
+    coords : list[float]
+        Latitude / longitude – forwarded to :class:`OptimizedPlacement`.
+    budget : float
+        Budget for *this* face (already pre-allocated by :class:`House`).
+    loss : float, default 18 %
+        Electrical loss factor.
+
+    Attributes
+    ----------
+    optimizer : :class:`OptimizedPlacement`
+        Performs heuristics to find best fitting geometric / financial /
+        energy yielding solar panel placement.
+
+    Parts
+    -----
+    panels : list[:class:`SolarPanel`]
+        Individual solar panels, positioned and typed by the optimizer.
+    """
+
     roof_face = Input()
     coords = Input()
     budget = Input()
@@ -21,8 +48,6 @@ class SolarPanelArray(Base):
         return SolarPanel(quantify=len(self.optimizer.real_points),
                           type=self.optimizer.best_result[0][0][child.index]['type'],
                           color=self.optimizer.best_result[0][0][child.index]['color'],
-                          position=Position(self.optimizer.real_points[child.index]),
-                          tilt=self.optimizer.tilt_xy,
-                          orientation=self.optimizer.best_result[0][2])
+                          position=self.optimizer.panel_frames[child.index])
 
 
