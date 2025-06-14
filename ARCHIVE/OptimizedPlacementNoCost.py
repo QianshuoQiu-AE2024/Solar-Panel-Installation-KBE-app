@@ -1,60 +1,45 @@
-from parapy.core import Base, Input, Attribute
+from parapy.core import Base, Input, Attribute, Part
 import requests
 from parapy.geom import Rectangle, Face, Point, Vector
+from parapy.core.widgets import TextField
 from shapely.geometry import Polygon as ShapelyPolygon
 from shapely.geometry import Point as ShapelyPoint
 from shapely.geometry import box
 from shapely.affinity import rotate as shapely_rotate
 import math
 
+class SolarRadiationDisplay(Base):
+    annual_radiation = Input(
+        0.0,
+        label="Annual Solar Radiation (kWh/year)",
+        widget=TextField()
+    )
 
 class OptimizedPlacement(Base):
     roof_face = Input()
     coords = Input()
-    budget = Input()
-    loss = Input()
 
     @Attribute
     def roof_normal(self):
         return self.roof_face.plane_normal.normalized
 
     @Attribute
-    def flatten_gable_roof(self):
-        n = self.roof_face.plane_normal.normalized
-        # If already (nearly) horizontal, nothing to do
-        if n.is_parallel(Vector(0, 0, 1), tol=1e-2):
-            return self.roof_face
-
-        # 1) compute the angle between the face normal and vertical
-        angle = n.angle(Vector(0, 0, 1))  # returns radians
-
-        # 2) compute the “ridge line” axis:
-        #    the line about which to rotate is perpendicular to both the face normal and vertical
-        axis = n.cross(Vector(0, 0, 1)).normalized
-
-        # 3) pick a point on the face to rotate about (its centroid is fine)
-        center = self.roof_face.cog
-
-        # 4) rotate “down” by that angle:
-        return self.roof_face.rotated(axis, angle, reference_point=center)
-
-    @Attribute
     def roof_poly(self):
         # Use outer wire (boundary) of face
-        xy = [(v.point.x, v.point.y) for v in self.flatten_gable_roof.outer_wire.vertices]
+        xy = [(v.point.x, v.point.y) for v in self.roof_face.outer_wire.vertices]
         return ShapelyPolygon(xy)
 
     @Attribute
     def optimal_angles(self):
         # PVGIS request
-        peakpower_kwp = 1  # IGNORE, Not important for optimal angles
+        peakpower_kwp = 1 # IGNORE, Not important for optimal angles
         params = {
             'lat': self.coords[0],
             'lon': self.coords[1],
             'outputformat': 'json',
             'mountingplace': 'building',
             'peakpower': peakpower_kwp,
-            'loss': self.loss,
+            'loss': 14,
             'optimalangles': 1,
             'usehorizon': 1
         }
@@ -65,6 +50,7 @@ class OptimizedPlacement(Base):
         return [optimal_azimuth, optimal_tilt]
 
     from parapy.geom import Position, Vector
+
     @Attribute
     def tilt_xy(self):
         if self.roof_face.plane_normal.is_parallel(Vector(0, 0, 1), tol=1e-2):
@@ -74,24 +60,23 @@ class OptimizedPlacement(Base):
         else:
             # SLOPED ROOF: use actual normal
             normal = self.roof_normal
+
         # Pitch: rotation about X (tilt in Y direction)
         pitch_rad = math.atan2(-normal.y, normal.z)
         pitch_deg = math.degrees(pitch_rad)
-        if self.is_north_facing:
-            pitch_rad = math.atan2(normal.y, normal.z)
-            pitch_deg = math.degrees(pitch_rad)
-        # Determine shift direction: positive shift if roof tilts "north", negative if "south"
-        shift_sw = False if normal.z > 0 else True
-        return [pitch_deg, shift_sw]
+
+        # Roll: rotation about Y (tilt in X direction)
+        roll_rad = math.atan2(normal.x, normal.z)
+        roll_deg = abs(math.degrees(roll_rad))
+        return [pitch_deg, roll_deg]
 
     @Attribute
     def tilt_angle_deg(self):
         if self.roof_face.plane_normal.is_parallel(Vector(0, 0, 1), tol=1e-2):
-            return self.optimal_angles[1]
+            tilt = self.optimal_angles[1]
         else:
-            tilt_rad = math.atan2(self.roof_normal.x, self.roof_normal.z)
-            tilt_deg = abs(math.degrees(tilt_rad))
-            return tilt_deg
+            tilt = math.degrees(self.roof_normal.angle(Vector(0, 0, 1)))
+        return tilt
 
     @Attribute
     def optimal_azimuth(self):
@@ -131,10 +116,9 @@ class OptimizedPlacement(Base):
             'outputformat': 'json',
             'pvcalculation': 1,
             'peakpower': 1,
-            'loss': self.loss,
+            'loss': 14,
             'usehorizon': 1
         }
-
 
         try:
             response = requests.get(radiation_url, params=params)
@@ -158,6 +142,7 @@ class OptimizedPlacement(Base):
         except Exception as e:
             print(f"Radiation API call failed: {e}")
             return 0
+
 
     def calculate_bearing(self, p1, p2):
         dx = p2[0] - p1[0]
@@ -190,22 +175,21 @@ class OptimizedPlacement(Base):
         rotation_angle = -target_azimuth + 90
         return shapely_rotate(poly, rotation_angle, origin='centroid', use_radians=False)
 
-    @Attribute
-    def is_north_facing(self):
-        return self.roof_face.plane_normal.y > 0
-
     # Panel types
     @Attribute
     def panel_specs(self):
         return [
-            {'type': 'large', 'length': 0.991, 'width': 1.956, 'cost': 900*0.9},
-            {'type': 'medium', 'length': 0.991, 'width': 1.65, 'cost': 762*0.9},
-            {'type': 'small', 'length': 0.991, 'width': 0.991, 'cost': 457*0.9},
-        ]
+        {'type': 'large', 'length': 0.991, 'width': 1.956},
+        {'type': 'medium', 'length': 0.991, 'width': 1.65},
+        {'type': 'small', 'length': 0.991, 'width': 0.991},]
+
 
     @Attribute
     def panels(self):
-        tilt_rad = math.radians(self.tilt_angle_deg)
+        if self.roof_face.plane_normal.is_parallel(Vector(0, 0, 1), tol=1e-2):
+            tilt_rad = math.radians(self.tilt_angle_deg)
+        else:
+            tilt_rad = 0
         panels = []
         for spec in self.panel_specs:
             length = spec['length']
@@ -219,8 +203,7 @@ class OptimizedPlacement(Base):
                 'proj_len': proj_len,
                 'proj_wid': proj_wid,
                 'eff_len': eff_len,
-                'eff_wid': eff_wid,
-                'cost': spec['cost']
+                'eff_wid': eff_wid
             })
         return panels
 
@@ -231,8 +214,6 @@ class OptimizedPlacement(Base):
     def optimize_method_1(self):
         wall_directions = self.compute_wall_directions(self.roof_poly)
         best_dir = self.find_closest_direction(wall_directions, self.optimal_azimuth)
-        if self.is_north_facing:
-            best_dir = (best_dir + 180) % 360
         rotated_poly = self.rotate_polygon_to_azimuth(self.roof_poly, best_dir)
         rotation_angle = -best_dir + 90
 
@@ -247,29 +228,26 @@ class OptimizedPlacement(Base):
                     sections.append(section)
             return sections
 
-        def optimize_section(section, roof_poly, panels, current_total_cost):
+        def optimize_section(section, roof_poly, panels):
             sec_minx, sec_miny, sec_maxx, sec_maxy = section.bounds
             eff_sec_minx = sec_minx + 0.05
             eff_sec_miny = sec_miny + 0.25
             eff_sec_maxx = sec_maxx - 0.05
             eff_sec_maxy = sec_maxy - 0.25
+
             if eff_sec_maxx <= eff_sec_minx or eff_sec_maxy <= eff_sec_miny:
-                return [], 0, current_total_cost
+                return [], 0
 
             placements = []
             total_area = 0
             sorted_panels = sorted(panels, key=lambda p: p['eff_len'] * p['eff_wid'], reverse=True)
-            y = eff_sec_miny
 
+            y = eff_sec_miny
             while y < eff_sec_maxy:
                 x = eff_sec_minx
                 while x < eff_sec_maxx:
                     placed = False
                     for panel in sorted_panels:
-                        # Skip if budget exceeded
-                        if current_total_cost + panel['cost'] > self.budget:
-                            continue
-
                         rect_shape = box(x, y, x + panel['eff_len'], y + panel['eff_wid'])
                         if section.contains(rect_shape) and roof_poly.buffer(-0.05, join_style=2).contains(rect_shape):
                             placements.append({
@@ -282,29 +260,24 @@ class OptimizedPlacement(Base):
                                     panel['type']],
                             })
                             total_area += panel['proj_len'] * panel['proj_wid']
-                            current_total_cost += panel['cost']
                             x += panel['eff_len']
                             placed = True
                             break
                     if not placed:
                         x += 0.5
                 y += max(p['eff_wid'] for p in panels)
-            return placements, total_area, current_total_cost
+            return placements, total_area
 
         sections = partition_roof_shape_based(rotated_poly, num_sections=3)
         all_placements = []
         total_area = 0
-        total_cost = 0
-
         for section in sections:
-            section_placements, section_area, total_cost = optimize_section(section, rotated_poly, self.panels,
-                                                                            total_cost)
+            section_placements, section_area = optimize_section(section, rotated_poly, self.panels)
             all_placements.extend(section_placements)
             total_area += section_area
 
         print('Total projection area:', total_area)
-        print('Total cost:', total_cost)
-        return [all_placements, total_area, best_dir, rotation_angle, 'Wall-Aligned (With Sections)', total_cost]
+        return [all_placements, total_area, best_dir, rotation_angle, 'Wall-Aligned (With Sections)']
 
     # -----------------------------
     # Method 2: Wall-Aligned (No Sections)
@@ -313,8 +286,6 @@ class OptimizedPlacement(Base):
     def optimize_method_2(self):
         wall_directions = self.compute_wall_directions(self.roof_poly)
         best_dir = self.find_closest_direction(wall_directions, self.optimal_azimuth)
-        if self.is_north_facing:
-            best_dir = (best_dir + 180) % 360
         rotated_poly = self.rotate_polygon_to_azimuth(self.roof_poly, best_dir)
         rotation_angle = -best_dir + 90
 
@@ -329,29 +300,26 @@ class OptimizedPlacement(Base):
                     sections.append(section)
             return sections
 
-        def optimize_section(section, roof_poly, panels, current_total_cost):
+        def optimize_section(section, roof_poly, panels):
             sec_minx, sec_miny, sec_maxx, sec_maxy = section.bounds
             eff_sec_minx = sec_minx + 0.05
             eff_sec_miny = sec_miny + 0.25
             eff_sec_maxx = sec_maxx - 0.05
             eff_sec_maxy = sec_maxy - 0.25
+
             if eff_sec_maxx <= eff_sec_minx or eff_sec_maxy <= eff_sec_miny:
-                return [], 0, current_total_cost
+                return [], 0
 
             placements = []
             total_area = 0
             sorted_panels = sorted(panels, key=lambda p: p['eff_len'] * p['eff_wid'], reverse=True)
-            y = eff_sec_miny
 
+            y = eff_sec_miny
             while y < eff_sec_maxy:
                 x = eff_sec_minx
                 while x < eff_sec_maxx:
                     placed = False
                     for panel in sorted_panels:
-                        # Skip if budget exceeded
-                        if current_total_cost + panel['cost'] > self.budget:
-                            continue
-
                         rect_shape = box(x, y, x + panel['eff_len'], y + panel['eff_wid'])
                         if section.contains(rect_shape) and roof_poly.buffer(-0.05, join_style=2).contains(rect_shape):
                             placements.append({
@@ -364,29 +332,24 @@ class OptimizedPlacement(Base):
                                     panel['type']],
                             })
                             total_area += panel['proj_len'] * panel['proj_wid']
-                            current_total_cost += panel['cost']
                             x += panel['eff_len']
                             placed = True
                             break
                     if not placed:
                         x += 0.5
                 y += max(p['eff_wid'] for p in panels)
-            return placements, total_area, current_total_cost
+            return placements, total_area
 
         sections = partition_roof_shape_based(rotated_poly, num_sections=1)
         all_placements = []
         total_area = 0
-        total_cost = 0
-
         for section in sections:
-            section_placements, section_area, total_cost = optimize_section(section, rotated_poly, self.panels,
-                                                                            total_cost)
+            section_placements, section_area = optimize_section(section, rotated_poly, self.panels)
             all_placements.extend(section_placements)
             total_area += section_area
 
         print('Total projection area:', total_area)
-        print('Total cost:', total_cost)
-        return [all_placements, total_area, best_dir, rotation_angle, 'Wall-Aligned (No Sections)', total_cost]
+        return [all_placements, total_area, best_dir, rotation_angle, 'Wall-Aligned (No Sections)']
 
     # -----------------------------
     # Method 3: Optimal Azimuth (No Sections)
@@ -407,29 +370,24 @@ class OptimizedPlacement(Base):
                     sections.append(section)
             return sections
 
-        def optimize_section(section, roof_poly, panels, current_total_cost):
+        def optimize_section(section, roof_poly, panels):
             sec_minx, sec_miny, sec_maxx, sec_maxy = section.bounds
             eff_sec_minx = sec_minx + 0.05
             eff_sec_miny = sec_miny + 0.25
             eff_sec_maxx = sec_maxx - 0.05
             eff_sec_maxy = sec_maxy - 0.25
             if eff_sec_maxx <= eff_sec_minx or eff_sec_maxy <= eff_sec_miny:
-                return [], 0, current_total_cost
+                return [], 0
 
             placements = []
             total_area = 0
             sorted_panels = sorted(panels, key=lambda p: p['eff_len'] * p['eff_wid'], reverse=True)
             y = eff_sec_miny
-
             while y < eff_sec_maxy:
                 x = eff_sec_minx
                 while x < eff_sec_maxx:
                     placed = False
                     for panel in sorted_panels:
-                        # Skip if budget exceeded
-                        if current_total_cost + panel['cost'] > self.budget:
-                            continue
-
                         rect_shape = box(x, y, x + panel['eff_len'], y + panel['eff_wid'])
                         if section.contains(rect_shape) and roof_poly.buffer(-0.05, join_style=2).contains(rect_shape):
                             placements.append({
@@ -442,30 +400,23 @@ class OptimizedPlacement(Base):
                                     panel['type']],
                             })
                             total_area += panel['proj_len'] * panel['proj_wid']
-                            current_total_cost += panel['cost']
                             x += panel['eff_len']
                             placed = True
                             break
                     if not placed:
                         x += 0.5
                 y += max(p['eff_wid'] for p in panels)
-            return placements, total_area, current_total_cost
+            return placements, total_area
 
         sections = partition_roof_shape_based(rotated_poly, num_sections=1)
         all_placements = []
         total_area = 0
-        total_cost = 0
-
         for section in sections:
-            section_placements, section_area, total_cost = optimize_section(section, rotated_poly, self.panels,
-                                                                            total_cost)
+            section_placements, section_area = optimize_section(section, rotated_poly, self.panels)
             all_placements.extend(section_placements)
             total_area += section_area
-
         print('Total projection area:', total_area)
-        print('Total cost:', total_cost)
-        return [all_placements, total_area, self.optimal_azimuth, rotation_angle, 'Optimal Azimuth (No Sections)',
-                total_cost]
+        return [all_placements, total_area, self.optimal_azimuth, rotation_angle, 'Optimal Azimuth (No Sections)']
 
     # -----------------------------
     # Method 4: Optimal Azimuth + Roof Sectioning
@@ -486,29 +437,24 @@ class OptimizedPlacement(Base):
                     sections.append(section)
             return sections
 
-        def optimize_section(section, roof_poly, panels, current_total_cost):
+        def optimize_section(section, roof_poly, panels):
             sec_minx, sec_miny, sec_maxx, sec_maxy = section.bounds
             eff_sec_minx = sec_minx + 0.05
             eff_sec_miny = sec_miny + 0.25
             eff_sec_maxx = sec_maxx - 0.05
             eff_sec_maxy = sec_maxy - 0.25
             if eff_sec_maxx <= eff_sec_minx or eff_sec_maxy <= eff_sec_miny:
-                return [], 0, current_total_cost
+                return [], 0
 
             placements = []
             total_area = 0
             sorted_panels = sorted(panels, key=lambda p: p['eff_len'] * p['eff_wid'], reverse=True)
             y = eff_sec_miny
-
             while y < eff_sec_maxy:
                 x = eff_sec_minx
                 while x < eff_sec_maxx:
                     placed = False
                     for panel in sorted_panels:
-                        # Skip if budget exceeded
-                        if current_total_cost + panel['cost'] > self.budget:
-                            continue
-
                         rect_shape = box(x, y, x + panel['eff_len'], y + panel['eff_wid'])
                         if section.contains(rect_shape) and roof_poly.buffer(-0.05, join_style=2).contains(rect_shape):
                             placements.append({
@@ -521,30 +467,28 @@ class OptimizedPlacement(Base):
                                     panel['type']],
                             })
                             total_area += panel['proj_len'] * panel['proj_wid']
-                            current_total_cost += panel['cost']
                             x += panel['eff_len']
                             placed = True
                             break
                     if not placed:
                         x += 0.5
                 y += max(p['eff_wid'] for p in panels)
-            return placements, total_area, current_total_cost
+            return placements, total_area
 
         sections = partition_roof_shape_based(rotated_poly, num_sections=3)
         all_placements = []
         total_area = 0
-        total_cost = 0
-
         for section in sections:
-            section_placements, section_area, total_cost = optimize_section(section, rotated_poly, self.panels,
-                                                                            total_cost)
+            section_placements, section_area = optimize_section(section, rotated_poly, self.panels)
             all_placements.extend(section_placements)
             total_area += section_area
-
         print('Total projection area:', total_area)
-        print('Total cost:', total_cost)
-        return [all_placements, total_area, self.optimal_azimuth, rotation_angle, 'Optimal Azimuth (With Sections)',
-                total_cost]
+        return [all_placements, total_area, self.optimal_azimuth, rotation_angle, 'Optimal Azimuth (With Sections)']
+
+    #@Attribute
+    #def best_result(self): # NEEDS TO BE CHANGED!!!!!!!!!!!!!
+        #print(self.optimize_method_1)
+        #return self.optimize_method_1
 
     @Attribute
     def best_result(self):
@@ -554,33 +498,30 @@ class OptimizedPlacement(Base):
             self.optimize_method_3,
             self.optimize_method_4,
         ]
+
         results = []
-        azimuth = 10000000
-        solar_radiation = 0
+
         for method in methods:
-            if azimuth - method[2] >= 1e-2:
-                sw = True
-            else:
-                sw = False
             azimuth = method[2]
             area = method[1]
+
             try:
-                if sw:
-                    solar_radiation = self.calculate_solar_radiation(self.tilt_angle_deg, azimuth)
+                solar_radiation = self.calculate_solar_radiation(self.tilt_angle_deg, azimuth)
                 total_radiation = area * solar_radiation
             except Exception as e:
                 print(f"Error calculating radiation for {method[4]}: {e}")
                 continue
+
             results.append({
                 'method': method,
                 'total_radiation': total_radiation
             })
-        if self.roof_face.plane_normal.is_parallel(Vector(0, 0, 1), tol=1e-2):
-            best = max(results, key=lambda x: x['total_radiation'])
-        else:
-            best = max([results[0], results[1]], key=lambda x: x['total_radiation'])
-        print(
-            f"Best Method: {best['method'][4]} | Total Solar Radiation: {best['total_radiation']:.2f} kWh/day | Total Cost: {best['method'][5]}")
+
+        best = {'method': methods[2], 'total_radiation': 5000}# max(results, key=lambda x: x['total_radiation'])
+
+        print(f"Best Method: {best['method'][4]} | Total Solar Radiation: {best['total_radiation']:.2f} kWh/day")
+
+        # Return the best method result and its total radiation
         return best['method'], best['total_radiation']
 
     @Attribute
@@ -592,6 +533,7 @@ class OptimizedPlacement(Base):
             br_x = placement['x'] + placement['length']
             br_y = placement['y']
             br_vertex = ShapelyPoint(br_x, br_y)
+
             # Rotate to real-world coordinates
             real_vertex = shapely_rotate(
                 br_vertex,
@@ -599,6 +541,7 @@ class OptimizedPlacement(Base):
                 origin=(self.roof_poly.centroid.x, self.roof_poly.centroid.y),
                 use_radians=False
             )
+
             panel_vertices.append({
                 'id': idx + 1,
                 'type': placement['type'],
@@ -614,14 +557,16 @@ class OptimizedPlacement(Base):
             Point(vertex['x_real'], vertex['y_real'], self.roof_face.cog.z)
             for vertex in self.solar_panel_placement]
 
-    @Attribute
+    @Attribute(in_tree=True)
     def real_points(self):
         z = self.roof_face.plane_normal.normalized
+
         # Choose a non-parallel reference vector
         reference = Vector(1, 0, 0) if abs(z.dot(Vector(0, 0, 1))) > 0.99 else Vector(0, 0, 1)
         x = z.in_plane_orthogonal(reference, normalize=True)
         y = z.cross(x).normalized
         origin = self.roof_face.cog
+
         return [
             flat_pt.project(ref=origin, axis1=x, axis2=y)
             for flat_pt in self.flat_points
@@ -629,23 +574,34 @@ class OptimizedPlacement(Base):
 
     @Attribute
     def annual_solar_radiation(self):
-        best_method_data = self.best_result[0]  # [placements, total_area, azimuth, rotation_angle, method_name, cost]
+        best_method_data = self.best_result[0]  # [placements, total_area, azimuth, rotation_angle, method_name]
         total_projected_area = best_method_data[1]
         tilt_deg = self.tilt_angle_deg
         azimuth = best_method_data[2]
+
         # Compute actual panel area from projected area
         tilt_rad = math.radians(tilt_deg)
         actual_area = total_projected_area / math.cos(tilt_rad) if tilt_deg != 90 else float('inf')
+
         # Get daily solar radiation based on tilt and azimuth
         daily_solrad = self.calculate_solar_radiation(tilt_deg, azimuth)
+
         # Annual radiation = actual area * daily * 365
         annual_radiation = actual_area * daily_solrad * 365
         return annual_radiation
 
-
+    @Part
+    def solar_radiation_widget(self):
+        return SolarRadiationDisplay(
+            annual_radiation=self.annual_solar_radiation,
+            label="Annual Solar Radiation"
+        )
 
 if __name__ == '__main__':
     from parapy.gui import display
 
     obj = OptimizedPlacement(roof_face=Face(Rectangle(width=7, length=4)), coords=[30.370216, 12.895168])
     display(obj)
+
+
+

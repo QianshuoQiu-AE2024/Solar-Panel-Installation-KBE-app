@@ -1,4 +1,4 @@
-from parapy.core import Base, Input, Attribute, Part, child
+from parapy.core import Input, Attribute, Part, child
 from parapy.geom import GeomBase, Point, Polygon, TextLabel
 import osmnx as ox
 from shapely.geometry import MultiPolygon

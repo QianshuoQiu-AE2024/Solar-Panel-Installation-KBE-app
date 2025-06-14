@@ -1,10 +1,11 @@
 from parapy.core import Base, Input, Attribute, Part, child
-from parapy.geom import Wire, LineSegment, Point, ExtrudedSolid, Vector, Position
+from parapy.geom import Wire, LineSegment, Point, ExtrudedSolid, Vector
 from Map import Map
 from Marker import Marker
 from Roof import Roof
 from SolarPanelArray import SolarPanelArray
 from parapy.exchange.step import STEPWriter
+from Summary import Summary
 
 
 
@@ -12,7 +13,11 @@ from parapy.exchange.step import STEPWriter
 class House(Base):
     address = Input()
     floors = Input()
-    budget = Input(5000)
+    budget = Input(120000)
+
+    @Attribute
+    def electrical_efficiency(self):
+        return 0.98
 
     @Attribute
     def floor_height(self):
@@ -81,12 +86,12 @@ class House(Base):
         for face in self.roof.roof_faces:
             n = face.plane_normal.normalized
             if n.is_parallel(Vector(0, 0, 1), tol=1e-2):
-                cost = 95
+                cost = 900 * 0.9
             else:
-                cost = 75
+                cost = 0.82 * 900 * 0.9
 
             face_area = face.area
-            panel_count = int(face_area // (1.35 * 2.1))
+            panel_count = int(face_area // (1.4 * 2.1))
             face_cost = panel_count * cost
 
             budget_for_face = min(remaining, face_cost)
@@ -100,6 +105,23 @@ class House(Base):
         while len(budgets) < len(self.roof.roof_faces):
             budgets.append(0)
         return budgets
+
+    @Attribute
+    def summary_info(self):
+        # Total cost of all solar panel arrays
+        total_cost = 0
+        total_radiation = 0
+        for array in self.solar_panel_arrays:
+            total_cost += array.optimizer.best_result[0][5]
+            # Total annual solar radiation
+            total_radiation += array.optimizer.annual_solar_radiation
+        usable_power = self.solar_panel_arrays[0].loss/100 * self.electrical_efficiency * total_radiation
+        # Money saved per year from solar panels assuming cost of kwh is 0.3 EUR
+        money_saved = usable_power * 0.3
+
+        return total_cost, usable_power, money_saved
+
+
 
     @Part
     def building(self):
@@ -127,16 +149,27 @@ class House(Base):
             coords=self.map.coords,
             budget=self.face_budgets[child.index])
 
+
     @Part
     def writer(self):
         return STEPWriter(
             nodes=[self.building, self.roof, self.solar_panel_arrays],
-            filename="house_with_solar_panels.stp"
+            filename="OUTPUT\\house_with_solar_panels.stp"
         )
+
+    @Part
+    def summary(self):
+        return Summary(info=self.summary_info)
 
 
 if __name__ == '__main__':
     from parapy.gui import display
     obj = House(address="Slangenstraat 48", floors=2) # roof_vertexes=[[4, 3, 7, 5], [1, 6, 8, 2]] #Bredabaan 614, Brasschaat
     display(obj)
+    # Pull out your two numbers:
+    total_cost, annual_kwh, money_saved = obj.summary_info
+    print(f"Your solar panels cost €{int(total_cost)}"
+        f"and will produce about {annual_kwh:.0f} kWh per year"
+        f"saving an average of €{int(money_saved)} per year")
+
     # obj.writer.write()

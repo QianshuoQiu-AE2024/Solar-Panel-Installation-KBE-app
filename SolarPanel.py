@@ -4,7 +4,6 @@ from parapy.geom import GeomBase, Vector, rotate, Box, Position, Point
 
 
 class SolarPanel(GeomBase):
-    """examples of different ways to define and position circles in ParaPy"""
     type = Input()
     position = Input()
     tilt = Input()
@@ -31,11 +30,10 @@ class SolarPanel(GeomBase):
     @Part
     def panel(self):
         return Box(height=self.type_size.x, width=self.type_size.y, length=self.type_size.z,
-                   centered=False,  # check in the class Box definition the effect of setting centered to False
+                   centered=False,
                    color=self.color,
                    position=rotate(rotate(self.shifted_position,
                                         'z', self.orientation, deg=True),
-                                        #'y', self.tilt[1], deg=True),
                                         'x', self.tilt[0], deg=True))
 
 
