@@ -2,6 +2,27 @@ from parapy.core import Base, Input, Attribute
 import os
 
 class TextWriter(Base):
+    """
+    Simple text writer that gathers, organises and then outputs
+    the results from the complete solar panel installation app.
+
+    Inputs
+    ----------
+    solar_panel_details : dict
+        Dictionary containing all information about the solar panels,
+        their placement, roof area and radiation.
+    summary_info : tuple
+        ``(total_cost, usable_energy_kwh, money_saved_eur_per_year)``,
+        produced by :pyattr:`House.summary_info`.
+    filename : os.path
+        Path of where to store output and definition of file name.
+
+    Attributes
+    ----------
+    save_file : None
+        Function that takes all the gathered data from 'House' and
+        exports it into a text file so it can be used and shared.
+    """
     solar_panel_details = Input()
     summary_info = Input()
     filename = os.path.join("OUTPUT", "Results.txt")  # Dynamic path

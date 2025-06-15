@@ -236,7 +236,7 @@ class House(Base):
 
     # The STEPWriter exports to a STEP file
     @Part
-    def writer(self):
+    def write_step(self):
         return STEPWriter(
             trees=[self],
             filename="OUTPUT\\house_with_solar_panels.stp"
@@ -247,7 +247,7 @@ class House(Base):
         return Summary(info=self.summary_info)
 
     @Part
-    def write_text(self):
+    def write_output(self):
         return TextWriter(
             solar_panel_details=self.solar_panel_details,
             summary_info=self.summary_info
@@ -258,6 +258,6 @@ if __name__ == '__main__':
     from parapy.gui import display
     obj = House(address="Slangenstraat 48", floors=2, budget=1000000)
     display(obj)
-    obj.writer.write()
+    obj.writer.write_step()
 
 
