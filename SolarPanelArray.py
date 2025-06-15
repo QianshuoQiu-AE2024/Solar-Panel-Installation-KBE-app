@@ -1,5 +1,4 @@
-from parapy.core import Base, Input, Part, child, Attribute
-from parapy.geom import Position
+from parapy.core import Base, Input, Part, child
 from SolarPanel import SolarPanel
 from OptimizedPlacementCost import OptimizedPlacement
 

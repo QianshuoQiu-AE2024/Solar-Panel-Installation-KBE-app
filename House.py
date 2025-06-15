@@ -258,6 +258,6 @@ if __name__ == '__main__':
     from parapy.gui import display
     obj = House(address="Slangenstraat 48", floors=2, budget=1000000)
     display(obj)
-    obj.writer.write_step()
+    obj.write_step.write()
 
 
