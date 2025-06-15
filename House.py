@@ -6,6 +6,7 @@ from Roof import Roof
 from SolarPanelArray import SolarPanelArray
 from parapy.exchange.step import STEPWriter
 from Summary import Summary
+from TextWriter import TextWriter
 
 
 
@@ -177,14 +178,33 @@ class House(Base):
         total_cost = 0
         total_radiation = 0
         for array in self.solar_panel_arrays:
-            total_cost += array.optimizer.best_result[0][5]
+            total_cost += array.solution.best_result[0][5]
             # Total annual solar radiation
-            total_radiation += array.optimizer.annual_solar_radiation
+            total_radiation += array.solution.annual_solar_radiation
         usable_energy = self.solar_panel_arrays[0].loss/100 * self.electrical_efficiency * total_radiation
         # Money saved per year from solar panels assuming cost of kwh is 0.3 EUR
         money_saved = usable_energy * 0.3
 
         return total_cost, usable_energy, money_saved
+
+
+    @Attribute
+    def solar_panel_details(self):
+        details = []
+        for array in self.solar_panel_arrays:
+            detail = {
+                'roof_area': array.solution.roof_area,
+                'panel_total_area': array.solution.panel_total_area,
+                'panel_counts': array.solution.panel_counts,
+                'best_tilt': array.solution.best_tilt,
+                'best_azimuth': array.solution.best_azimuth,
+                'actual_azimuth': array.solution.actual_azimuth,
+                'avg_daily_radiation': array.solution.avg_solar_radiation
+            }
+            details.append(detail)
+        return details
+
+
 
     @Part
     def building(self):
@@ -226,9 +246,18 @@ class House(Base):
     def summary(self):
         return Summary(info=self.summary_info)
 
+    @Part
+    def write_text(self):
+        return TextWriter(
+            solar_panel_details=self.solar_panel_details,
+            summary_info=self.summary_info
+        )
+
 
 if __name__ == '__main__':
     from parapy.gui import display
     obj = House(address="Slangenstraat 48", floors=2, budget=1000000)
     display(obj)
     obj.writer.write()
+
+

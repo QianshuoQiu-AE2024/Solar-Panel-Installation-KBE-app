@@ -753,6 +753,43 @@ class OptimizedPlacement(Base):
         annual_radiation = actual_area * daily_solrad * 365
         return annual_radiation
 
+    # In OptimizedPlacement class
+    @Attribute
+    def roof_area(self):
+        return self.roof_face.area  # Roof area of the face
+
+    @Attribute
+    def panel_total_area(self):
+        return self.best_result[0][1]  # Total area covered by panels
+
+    @Attribute
+    def panel_counts(self):
+        counts = {'small': 0, 'medium': 0, 'large': 0}
+        placements = self.best_result[0][0]  # Best method placements
+        for p in placements:
+            counts[p['type']] += 1  # Count panel types
+        return counts
+
+    @Attribute
+    def best_tilt(self):
+        return self.tilt_angle_deg  # Optimal tilt angle
+
+    @Attribute
+    def best_azimuth(self):
+        return self.optimal_angles[0]  # PVGIS-recommended azimuth
+
+    @Attribute
+    def actual_azimuth(self):
+        return self.best_result[0][2]  # Actual azimuth used (e.g., wall-aligned)
+
+    @Attribute
+    def avg_solar_radiation(self):
+        best_method_data = self.best_result[0]  # [placements, total_area, azimuth, rotation_angle, method_name, cost]
+        tilt_deg = self.tilt_angle_deg
+        azimuth = best_method_data[2]
+        daily_solrad = self.calculate_solar_radiation(tilt_deg, azimuth)
+        return daily_solrad  # Daily average kWh/m²/day
+
 
 if __name__ == '__main__':
     from parapy.gui import display
